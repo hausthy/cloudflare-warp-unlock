@@ -1,0 +1,14 @@
+# WARP 账号、私钥和 WireGuard 配置
+config/*
+!config/.keep
+
+# 运行数据与日志
+data/*
+!data/.keep
+!data/cron/
+data/cron/*
+!data/cron/.keep
+logs/*
+!logs/.keep
+
+.env

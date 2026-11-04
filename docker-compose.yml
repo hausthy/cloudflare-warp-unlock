@@ -1,0 +1,62 @@
+services:
+  warp-unlock:
+    container_name: warp-unlock
+    image: local/warp-unlock:1.1
+    build:
+      context: .
+      args:
+        WGCF_VERSION: "${WGCF_VERSION:-2.2.32}"
+        GOST_VERSION: "${GOST_VERSION:-2.11.5}"
+    restart: unless-stopped
+    init: true
+
+    # 用户态 wireguard-go 依赖 /dev/net/tun 虚拟网卡设备
+    devices:
+      - /dev/net/tun:/dev/net/tun
+
+    # 仅允许容器管理内部网络命名空间，完全不加载宿主机内核模块
+    cap_add:
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+
+    # 仅映射到宿主机回环地址，不向公网开放
+    ports:
+      - "127.0.0.1:40000:40000/tcp"
+
+    environment:
+      TZ: Asia/Shanghai
+      WARP_REGION: "${WARP_REGION:-us}"
+      UNLOCK_STREAMS: "${UNLOCK_STREAMS:-ndc}"
+      WARP_FAMILY: "${WARP_FAMILY:-4}"
+      WARP_AUTO_SETUP: "${WARP_AUTO_SETUP:-1}"
+      WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD: "1"
+
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: "0"
+      net.ipv6.conf.default.disable_ipv6: "0"
+
+    volumes:
+      - ./config:/etc/wireguard
+      - ./data:/data
+      - ./data/cron:/var/spool/cron/crontabs
+      - ./logs:/logs
+      # 挂载宿主机 scripts 目录（容器启动时检测是否有 warp-unlock.sh，有则直接使用，无则在线下载）
+      - ./scripts:/scripts:ro
+
+    networks:
+      - warp-net
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'ip link show wgcf >/dev/null 2>&1 && ss -Hln "sport = :40000" | grep -q .'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+
+networks:
+  warp-net:
+    name: warp-unlock-net
+    driver: bridge
