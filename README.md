@@ -98,15 +98,15 @@ flowchart TD
     CheckInit -->|已存在且未指定 force| Ready["跳过初始化，直接复用既有定时任务"]
     CheckInit -->|未初始化或指定 force| CheckMount{"【第一级检测】<br>宿主机是否挂载了本地脚本?<br>/scripts/warp-unlock.sh"}
 
-    CheckMount -->|是 (本地挂载存在且非空)| UseMount["【Tier 1: 本地挂载优先】<br>直接载入宿主机挂载的脚本<br>无需重新构建镜像，修改即时生效"]
+    CheckMount -->|本地挂载存在且非空| UseMount["【Tier 1: 本地挂载优先】<br>直接载入宿主机挂载的脚本<br>无需重新构建镜像，修改即时生效"]
 
-    CheckMount -->|否 (未挂载或文件为空)| FetchOnline["【Tier 2: 在线动态获取】<br>向官方源发起拉取最新上游脚本"]
+    CheckMount -->|未挂载或文件为空| FetchOnline["【Tier 2: 在线动态获取】<br>向官方源发起拉取最新上游脚本"]
     FetchOnline --> TryGitLab{"尝试从 GitLab 官方源拉取<br>gitlab.com/fscarmen/warp_unlock"}
     TryGitLab -->|下载成功| UseOnline["载入最新官方版本"]
     TryGitLab -->|失败或超时| TryGitHub{"尝试从 GitHub 备用镜像拉取<br>raw.githubusercontent.com"}
     TryGitHub -->|下载成功| UseOnline
 
-    TryGitHub -->|失败 (网络受限或离线)| Fallback["【Tier 3: 镜像保底降级】<br>自动触发降级回退<br>载入镜像内置的离线保底脚本<br>/app/warp-unlock.fallback.sh"]
+    TryGitHub -->|网络受限或离线| Fallback["【Tier 3: 镜像保底降级】<br>自动触发降级回退<br>载入镜像内置的离线保底脚本<br>/app/warp-unlock.fallback.sh"]
 
     UseMount --> Install["安装为运行时核心脚本<br>/usr/local/bin/unlock.sh (chmod 0755)"]
     UseOnline --> Install
