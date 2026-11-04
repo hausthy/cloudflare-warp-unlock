@@ -1,10 +1,6 @@
 # Cloudflare WARP Unlock Gateway (Userspace wireguard-go)
 
-[![Alpine Linux](https://img.shields.io/badge/Base-Alpine_3.21-blue.svg)](https://alpinelinux.org/)
-[![Architecture](https://img.shields.io/badge/Arch-AMD64_--_ARM64-success.svg)](#)
-[![Driver](https://img.shields.io/badge/Driver-wireguard--go-red.svg)](https://git.zx2c4.com/wireguard-go)
-[![Size](https://img.shields.io/badge/Size-50MB-brightgreen.svg)](#)
-[![GitHub](https://img.shields.io/badge/GitHub-warp__unlock-blue.svg)](https://github.com/hausthy/warp_unlock)
+[![Alpine Linux](https://img.shields.io/badge/Base-Alpine_3.21-blue.svg)](https://alpinelinux.org/) [![Architecture](https://img.shields.io/badge/Arch-AMD64_--_ARM64-success.svg)](#) [![Driver](https://img.shields.io/badge/Driver-wireguard--go-red.svg)](https://git.zx2c4.com/wireguard-go) [![Size](https://img.shields.io/badge/Size-50MB-brightgreen.svg)](#) [![GitHub](https://img.shields.io/badge/GitHub-warp__unlock-blue.svg)](https://github.com/hausthy/warp_unlock)
 
 专为云服务器打造的 **轻量级、无污染、无特权** Cloudflare WARP 流媒体解锁网关。
 
