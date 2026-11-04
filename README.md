@@ -38,7 +38,7 @@
 ```mermaid
 flowchart TD
     subgraph Host["宿主机 (Host)"]
-        Client["远程服务器 / 本地应用<br>(Xray / Sing-box / curl)"]
+        Client["远程服务器 / 本地应用<br>"]
         SocksPort["127.0.0.1:40000 (SOCKS5 入口)"]
         Client -->|仅本机回环访问| SocksPort
     end
