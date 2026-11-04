@@ -38,7 +38,7 @@
 ```mermaid
 flowchart TD
     subgraph Host["宿主机 (Host)"]
-        Client["科学上网服务端 / 本地应用<br>(Xray / Sing-box / curl)"]
+        Client["远程服务器 / 本地应用<br>(Xray / Sing-box / curl)"]
         SocksPort["127.0.0.1:40000 (SOCKS5 入口)"]
         Client -->|仅本机回环访问| SocksPort
     end
@@ -47,10 +47,10 @@ flowchart TD
         Gost["GOST SOCKS5 代理服务 (:40000)"]
         SocksPort -.->|端口映射| Gost
 
-        Manager["wireguard-manager & entrypoint<br>(生命周期、DNS、防环路由管理)"]
+        Manager["wireguard-manager 与 entrypoint<br>(生命周期、DNS、防环路由管理)"]
         WGCF["WGCF (账户与配置生成)"]
         WGGo["wireguard-go (用户态 WireGuard)"]
-        Unlock["unlock.sh 1.22 + crond<br>(每5分钟定时探测 / 刷解锁IP)"]
+        Unlock["unlock.sh 1.22 与 crond<br>(每5分钟定时探测 / 刷解锁IP)"]
 
         WGCF -->|适配配置| Manager
         Manager -->|拉起 TUN / 分段路由| WGGo
@@ -61,7 +61,7 @@ flowchart TD
     subgraph Cloudflare["Cloudflare WARP 骨干网"]
         Endpoint["Cloudflare Anycast 节点<br>(engage.cloudflareclient.com)"]
         CFIP["干净的流媒体解锁 IP 资源池"]
-        WGGo == WireGuard 隧道加密 ==> Endpoint
+        WGGo ==>|WireGuard 隧道加密| Endpoint
         Endpoint --> CFIP
     end
 
@@ -93,42 +93,28 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Start["容器启动: 执行 setup-unlock.sh"] --> CheckInit{"/data/warp_unlock.sh<br>定时任务是否已存在?"}
+    Start["容器启动 (执行 setup-unlock.sh)"] --> CheckInit{"/data/warp_unlock.sh<br>定时任务是否已存在?"}
     
     CheckInit -->|已存在且未指定 force| Ready["跳过初始化，直接复用既有定时任务"]
     CheckInit -->|未初始化或指定 force| CheckMount{"【第一级检测】<br>宿主机是否挂载了本地脚本?<br>/scripts/warp-unlock.sh"}
 
-    %% 第一级：本地挂载优先
-    CheckMount -->|是: 挂载文件存在且非空| UseMount["【Tier 1: 本地挂载优先】<br>直接载入宿主机挂载的脚本<br>无需重新构建镜像，修改即时生效"]
+    CheckMount -->|是 (本地挂载存在且非空)| UseMount["【Tier 1: 本地挂载优先】<br>直接载入宿主机挂载的脚本<br>无需重新构建镜像，修改即时生效"]
 
-    %% 第二级：在线动态拉取
-    CheckMount -->|否: 未挂载或文件为空| FetchOnline["【Tier 2: 在线动态获取】<br>向官方源发起拉取最新上游脚本"]
+    CheckMount -->|否 (未挂载或文件为空)| FetchOnline["【Tier 2: 在线动态获取】<br>向官方源发起拉取最新上游脚本"]
     FetchOnline --> TryGitLab{"尝试从 GitLab 官方源拉取<br>gitlab.com/fscarmen/warp_unlock"}
     TryGitLab -->|下载成功| UseOnline["载入最新官方版本"]
     TryGitLab -->|失败或超时| TryGitHub{"尝试从 GitHub 备用镜像拉取<br>raw.githubusercontent.com"}
     TryGitHub -->|下载成功| UseOnline
 
-    %% 第三级：离线保底降级
-    TryGitHub -->|失败: 网络受限或离线| Fallback["【Tier 3: 镜像保底降级】<br>自动触发降级回退<br>载入镜像内置的离线保底脚本<br>/app/warp-unlock.fallback.sh"]
+    TryGitHub -->|失败 (网络受限或离线)| Fallback["【Tier 3: 镜像保底降级】<br>自动触发降级回退<br>载入镜像内置的离线保底脚本<br>/app/warp-unlock.fallback.sh"]
 
-    %% 汇聚到系统安装与调度
     UseMount --> Install["安装为运行时核心脚本<br>/usr/local/bin/unlock.sh (chmod 0755)"]
     UseOnline --> Install
     Fallback --> Install
 
     Install --> GenUnlock["执行初始化生成 /data/warp_unlock.sh<br>写入目标地区与检测项配置"]
     GenUnlock --> Crond["拉起 BusyBox crond 定时守护进程<br>每 5 分钟自动检测流媒体与轮询 IP"]
-    Crond --> Finish["网关就绪：自动守护流媒体解锁与 SOCKS5 代理"]
-
-    classDef primary fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
-    classDef success fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
-    classDef warning fill:#fff3e0,stroke:#f57c00,stroke-width:2px;
-    classDef finalNode fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px;
-
-    class UseMount primary;
-    class UseOnline success;
-    class Fallback warning;
-    class Finish finalNode;
+    Crond --> Finish["网关就绪 (自动守护流媒体解锁与 SOCKS5 代理)"]
 ```
 
 ---
@@ -247,7 +233,7 @@ docker compose exec warp-unlock /app/check-status.sh
 
 ---
 
-## 📺 联动主流科学上网服务端（分流配置示例）
+## 📺 联动主流远程服务器应用（分流配置示例）
 
 通过配置分流规则，将流媒体（Netflix/Disney+/ChatGPT）流量定向转给本项目的 SOCKS5 端口，其余流量走服务器原生 IP。
 

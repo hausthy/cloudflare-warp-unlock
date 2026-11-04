@@ -1,0 +1,6 @@
+# 强制保持 Linux LF 换行符，防止容器运行时报 \r 语法错误
+* text=auto eol=lf
+*.sh text eol=lf
+scripts/* text eol=lf
+wg-quick text eol=lf
+Dockerfile text eol=lf
