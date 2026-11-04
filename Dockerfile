@@ -55,7 +55,7 @@ ENV TZ=Asia/Shanghai \
 # - iproute2: ip 与 ss 工具
 # - wireguard-tools: wg 命令行工具
 # - iptables: 隧道策略与 NAT 标记
-# - tzdata: 复制完时区文件后彻底清理卸载，不留任何冗余
+# - tzdata: 完整时区数据库（确保 Alpine musl libc 正确解析 Asia/Shanghai 时区）
 RUN set -eux; \
     apk add --no-cache \
       bash \
@@ -67,7 +67,6 @@ RUN set -eux; \
       tzdata \
     && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && echo "Asia/Shanghai" > /etc/timezone \
-    && apk del --purge tzdata \
     && rm -rf /var/cache/apk/* /tmp/* \
     && mkdir -p /etc/wireguard /data /data/cron /data/logs /app \
                  /var/spool/cron/crontabs /root /var/run/wireguard
