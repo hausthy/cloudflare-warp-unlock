@@ -16,6 +16,15 @@ log() {
 WARP_PROXY_PORT=40001          # warp-svc 本机代理端口（gost 转发目标）
 PUBLIC_PORT=40000              # 对外暴露端口
 
+# ------------------------------------------------------------------------------
+# 日志配置：
+#   WARP_LOG_LEVEL —— warp-svc 为 Rust/tracing 程序，识别 RUST_LOG 环境变量；
+#                     默认 info，屏蔽默认 DEBUG 级别的连接细节刷屏
+#   WARP_LOG_FILE  —— 日志落盘文件（/logs 挂载到宿主机 ./logs）；留空 = 仅 stdout
+# ------------------------------------------------------------------------------
+export RUST_LOG="${WARP_LOG_LEVEL:-info}"
+WARP_LOG_FILE="${WARP_LOG_FILE:-/logs/warp.log}"
+
 mkdir -p /logs /var/lib/cloudflare-warp
 
 # ------------------------------------------------------------------------------
@@ -108,6 +117,15 @@ fi
 
   # 7. 看门狗：定期验证隧道连通性，失联自动重连
   while true; do
+    # 日志文件超过 10MB 时轮转，仅保留最近 2000 行。
+    # 注意必须原地截断重写（cat tmp > file），不能用 mv——tee 持有原 inode 的
+    # append fd，mv 换 inode 后日志会写进已删除的旧文件而丢失
+    if [[ -n "$WARP_LOG_FILE" && -f "$WARP_LOG_FILE" ]] \
+       && (( $(stat -c%s "$WARP_LOG_FILE" 2>/dev/null || echo 0) > 10485760 )); then
+      tail -n 2000 "$WARP_LOG_FILE" > "${WARP_LOG_FILE}.tmp" \
+        && cat "${WARP_LOG_FILE}.tmp" > "$WARP_LOG_FILE" \
+        && rm -f "${WARP_LOG_FILE}.tmp"
+    fi
     sleep "${WARP_WATCHDOG_INTERVAL:-60}"
     if ! curl -ksm8 -x "socks5h://127.0.0.1:${WARP_PROXY_PORT}" \
          https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep -Eq '^warp=(on|plus)$'; then
@@ -142,5 +160,14 @@ if [[ "${WARP_AUTO_UNLOCK:-1}" == "1" ]]; then
   ) &
 fi
 
-# warp-svc 前台运行，作为容器主进程
+# ------------------------------------------------------------------------------
+# warp-svc 前台运行，作为容器主进程（保持 PID1 以便正确接收 docker stop 信号）
+#   - RUST_LOG 已导出，控制日志级别
+#   - WARP_LOG_FILE 非空时经 tee 同步落盘（stdout 仍进 docker logs）
+# ------------------------------------------------------------------------------
+if [[ -n "$WARP_LOG_FILE" ]]; then
+  mkdir -p "$(dirname "$WARP_LOG_FILE")"
+  log "warp-svc 日志：级别 ${RUST_LOG}，落盘 ${WARP_LOG_FILE}"
+  exec warp-svc > >(tee -a "$WARP_LOG_FILE") 2>&1
+fi
 exec warp-svc

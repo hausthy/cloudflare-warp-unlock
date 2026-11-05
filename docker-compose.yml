@@ -39,6 +39,10 @@ services:
       WARP_ENDPOINT: "${WARP_ENDPOINT:-}"
       # 看门狗巡检间隔（秒），失联自动重连
       WARP_WATCHDOG_INTERVAL: "${WARP_WATCHDOG_INTERVAL:-60}"
+      # warp-svc 日志级别（error/warn/info/debug/trace），默认 info 屏蔽 DEBUG 刷屏
+      WARP_LOG_LEVEL: "${WARP_LOG_LEVEL:-info}"
+      # warp-svc 日志落盘文件（./logs/warp.log）；留空 = 仅输出 docker logs
+      WARP_LOG_FILE: "${WARP_LOG_FILE:-/logs/warp.log}"
 
     # 注册状态持久化：跨容器重启保留 WARP 账户，避免重复注册
     volumes:
