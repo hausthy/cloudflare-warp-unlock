@@ -5,7 +5,7 @@
 # 流程：拉起 warp-svc 守护进程 → 注册账户 →（可选）绑定 WARP+ License →
 #       切换 proxy 模式（本机 40001）→ 连接 → GOST 前端 (:40000) → 看门狗守护
 #
-# 权限模型：无 TUN、无 NET_ADMIN、无特权。warp-svc 的 proxy 模式为纯用户态 MASQUE。
+# 权限模型：无 TUN、无 privileged，仅需 NET_ADMIN（warp-svc 安装 fwmark 策略路由所需）。
 # ==============================================================================
 set -u
 

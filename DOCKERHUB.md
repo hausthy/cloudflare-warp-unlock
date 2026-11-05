@@ -1,17 +1,17 @@
 # Cloudflare WARP Unlock Gateway v2.0 (Official Client · MASQUE)
 
-[![Debian](https://img.shields.io/badge/Base-Debian_bookworm-blue.svg)](https://www.debian.org/) [![Client](https://img.shields.io/badge/Client-Cloudflare_WARP_official-orange.svg)](https://pkg.cloudflareclient.com/) [![Protocol](https://img.shields.io/badge/Protocol-MASQUE-red.svg)](#) [![Architecture](https://img.shields.io/badge/Arch-AMD64_--_ARM64-success.svg)](#) [![Privilege](https://img.shields.io/badge/Privilege-Zero-brightgreen.svg)](#)
+[![Debian](https://img.shields.io/badge/Base-Debian_bookworm-blue.svg)](https://www.debian.org/) [![Client](https://img.shields.io/badge/Client-Cloudflare_WARP_official-orange.svg)](https://pkg.cloudflareclient.com/) [![Protocol](https://img.shields.io/badge/Protocol-MASQUE-red.svg)](#) [![Architecture](https://img.shields.io/badge/Arch-AMD64_--_ARM64-success.svg)](#) [![Privilege](https://img.shields.io/badge/Privilege-NET_ADMIN_only-yellow.svg)](#)
 
-专为云服务器打造的 **零特权、开箱即用** Cloudflare WARP 代理网关。
+专为云服务器打造的 **最小特权、开箱即用** Cloudflare WARP 代理网关。
 
-基于 **Debian + Cloudflare 官方 warp-svc 客户端（MASQUE 协议）+ GOST** 构建：无需 TUN 设备、无需 NET_ADMIN、无需 privileged，同端口提供 **SOCKS5 / HTTP CONNECT 双协议**代理，支持 WARP+ License、可选认证与看门狗自动重连。
+基于 **Debian + Cloudflare 官方 warp-svc 客户端（MASQUE 协议）+ GOST** 构建：无需 TUN 设备、无需 privileged，仅需 `NET_ADMIN` capability（新版官方客户端安装 fwmark 策略路由所需），同端口提供 **SOCKS5 / HTTP CONNECT 双协议**代理，支持 WARP+ License、可选认证与看门狗自动重连。
 
 ---
 
 ## 🌟 核心特性
 
 * 🏛️ **官方客户端**：Cloudflare 官方 APT 源安装 `cloudflare-warp`，协议演进官方跟进。
-* 🛡️ **零特权**：无 TUN、无 NET_ADMIN、不建网卡不改路由，任何 Docker 环境皆可运行。
+* 🛡️ **最小特权**：无 TUN、无 privileged，仅需 `NET_ADMIN` capability，不建网卡不改路由。
 * 🔀 **双协议同端口**：`:40000` 同时接受 `socks5h://` / `socks5://` / `http://`。
 * 🔒 **可选认证**：`PROXY_USER/PROXY_PASS` 启用 HTTP Basic + SOCKS5 user/pass。
 * ➕ **WARP+ 一键升级**：`WARP_LICENSE` 环境变量自动绑定。
@@ -27,7 +27,7 @@
 ```text
 [宿主机] 应用 ──► 127.0.0.1:40000
                      │
-[warp-unlock 容器（零特权）]
+[warp-unlock 容器（最小特权）]
   GOST 前端 (:40000, auto 协议 + 可选认证)
     └──► warp-svc proxy 模式 (:40001)
            └──► MASQUE (QUIC/HTTP3) ──► Cloudflare 骨干网
@@ -44,6 +44,7 @@
 docker run -d \
   --name warp-unlock \
   --restart unless-stopped \
+  --cap-add NET_ADMIN \
   -p 127.0.0.1:40000:40000 \
   -v $(pwd)/config:/var/lib/cloudflare-warp \
   hausthy/warp-unlock:latest

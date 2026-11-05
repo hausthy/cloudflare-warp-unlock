@@ -9,7 +9,12 @@ services:
     restart: unless-stopped
     init: true
 
-    # 官方客户端 MASQUE 架构：无需 /dev/net/tun、无需 NET_ADMIN、无特权。
+    # 官方客户端 MASQUE 架构：无需 /dev/net/tun、无需 privileged。
+    # 新版 warp-svc 连接建立后会安装 fwmark 策略路由规则（ip rule），
+    # 需要 NET_ADMIN capability（仅此一项，无需 TUN 设备）。
+    cap_add:
+      - NET_ADMIN
+
     # 如需公网暴露，请务必先配置 PROXY_USER/PROXY_PASS 认证。
 
     # 仅映射到宿主机回环地址，不向公网开放

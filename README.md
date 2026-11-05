@@ -4,12 +4,12 @@
 [![Client](https://img.shields.io/badge/Client-Cloudflare_WARP_official-orange.svg)](https://pkg.cloudflareclient.com/)
 [![Protocol](https://img.shields.io/badge/Protocol-MASQUE-red.svg)](#)
 [![Architecture](https://img.shields.io/badge/Arch-AMD64%20%7C%20ARM64-success.svg)](#)
-[![Privilege](https://img.shields.io/badge/Privilege-Zero-brightgreen.svg)](#)
+[![Privilege](https://img.shields.io/badge/Privilege-NET_ADMIN_only-yellow.svg)](#)
 [![License](https://img.shields.io/badge/License-MIT-orange.svg)](#)
 
 专为 VPS / 云服务器打造的容器化 Cloudflare WARP 代理网关。
 
-基于 **Debian + Cloudflare 官方 warp-svc 客户端（MASQUE 协议）+ GOST** 构建：不创建 TUN 设备、不改路由表、**零特权**，通过官方 proxy 模式对外提供 **SOCKS5 / HTTP CONNECT 双协议**代理，内置看门狗自动重连与 WARP+ License 绑定。
+基于 **Debian + Cloudflare 官方 warp-svc 客户端（MASQUE 协议）+ GOST** 构建：不创建 TUN 设备、不改路由表，仅需 `NET_ADMIN` capability（无需 `privileged`），通过官方 proxy 模式对外提供 **SOCKS5 / HTTP CONNECT 双协议**代理，内置看门狗自动重连与 WARP+ License 绑定。
 
 ---
 
@@ -17,8 +17,8 @@
 
 * 🏛️ **Cloudflare 官方客户端（warp-svc + MASQUE）**：
   使用官方 APT 源安装的 `cloudflare-warp`，协议演进由 Cloudflare 官方跟进（proxy 模式仅支持 MASQUE），无需自行维护 WireGuard 配置生成逻辑。
-* 🛡️ **真正零特权**：
-  无需 `/dev/net/tun` 设备、无需 `NET_ADMIN`/`SYS_ADMIN` capability、无需 `privileged`，不创建虚拟网卡不修改路由——任何能跑 Docker 的环境（含受限 LXC、容器托管平台）皆可运行。
+* 🛡️ **最小特权**：
+  无需 `/dev/net/tun` 设备、无需 `privileged`，仅需 `NET_ADMIN` capability（新版 warp-svc 连接建立后会安装 fwmark 策略路由规则，此为官方客户端硬性要求），不创建虚拟网卡——常规 Docker 环境开箱即跑。
 * 🔀 **同端口双协议**：
   GOST 前端 `auto` 协议自动识别，`40000` 端口同时接受 `socks5h://`、`socks5://` 与 `http://` 客户端。
 * 🔒 **可选代理认证**：
@@ -46,7 +46,7 @@ flowchart TD
         Client -->|仅本机回环访问| SocksPort
     end
 
-    subgraph Container["warp-unlock 容器内部（零特权沙箱）"]
+    subgraph Container["warp-unlock 容器内部（最小特权沙箱）"]
         Gost["GOST 前端 (:40000)<br>auto 协议识别 + 可选认证"]
         WarpSvc["warp-svc 官方守护进程<br>proxy 模式 (:40001)"]
         Watchdog["看门狗循环<br>(trace 探测 / 失联自动重连)"]
@@ -78,17 +78,17 @@ flowchart TD
 
 | 项目 | v1.x (WGCF) | v2.0 (官方客户端 MASQUE) |
 | :--- | :--- | :--- |
-| 所需权限 | `/dev/net/tun` + `NET_ADMIN` | **无**（零特权） |
+| 所需权限 | `/dev/net/tun` + `NET_ADMIN` | 仅 `NET_ADMIN`（无需 TUN 设备） |
 | 协议 | WireGuard UDP | MASQUE（QUIC/HTTP3） |
 | 代理协议 | SOCKS5（GOST） | SOCKS5 + **HTTP CONNECT**（同端口） |
 | WARP+ License | `wgcf update --license-key` | `warp-cli registration license` |
 | 出口地区定向 | ✅ WGCF 配置直接指定 | ⚠️ `WARP_REGION` 验证 + `WARP_ENDPOINT` 钉入口（高级） |
 | 解锁检测/自动刷 IP | ✅ 每 5 分钟 | ✅ `UNLOCK_STREAMS` 巡检 + 失败轮换（可配间隔） |
 | 出口 IP 轮换 | 重连隧道即换 IP | 重启容器 / `warp-cli disconnect && connect` |
-| 适用环境 | 需 TUN 的常规 VPS | 任何 Docker 环境（含受限容器平台） |
+| 适用环境 | 需 TUN 的常规 VPS | 常规 Docker 环境（无需 TUN，需 NET_ADMIN） |
 
 > 如果依赖「WGCF 精确地区切换」能力，请继续使用 v1.x（`master` 分支）；
-> 如果更看重零特权部署、官方维护与协议兼容性，v2.0 是更优解（解锁检测与刷 IP 已回归）。
+> 如果更看重官方维护与协议兼容性，v2.0 是更优解（解锁检测与刷 IP 已回归；权限上免去 TUN 设备，仅需 NET_ADMIN）。
 
 ---
 
@@ -97,7 +97,7 @@ flowchart TD
 ```text
 warp-unlock-docker/
 ├── Dockerfile                   # Debian + 官方 cloudflare-warp + GOST 构建（含瘦身清理）
-├── docker-compose.yml           # 零特权服务编排
+├── docker-compose.yml           # 服务编排（cap_add: NET_ADMIN）
 ├── .env.example                 # 环境变量配置模板
 ├── .github/workflows/
 │   └── docker-image.yml         # 预构建镜像 CI（多架构 + 每日重建）
@@ -123,6 +123,7 @@ warp-unlock-docker/
 # Docker Hub
 docker run -d --name warp-unlock \
   --restart unless-stopped \
+  --cap-add NET_ADMIN \
   -p 127.0.0.1:40000:40000 \
   -v $(pwd)/config:/var/lib/cloudflare-warp \
   hausthy/warp-unlock:latest
@@ -130,6 +131,7 @@ docker run -d --name warp-unlock \
 # 或 GitHub Container Registry
 docker run -d --name warp-unlock \
   --restart unless-stopped \
+  --cap-add NET_ADMIN \
   -p 127.0.0.1:40000:40000 \
   -v $(pwd)/config:/var/lib/cloudflare-warp \
   ghcr.io/hausthy/warp-unlock:latest
@@ -261,6 +263,16 @@ docker compose down && rm -rf config/*
 
 ### Q5: 公网暴露安全吗？
 默认端口仅绑定 `127.0.0.1`，外网不可达。如需公网使用：务必配置 `PROXY_USER/PROXY_PASS` 认证后再将端口映射改为 `0.0.0.0`。
+
+### Q6: 日志报 `fwmark policy rule ... Operation not permitted` 后无限重连？
+新版 warp-svc 在连接建立后会向容器网络命名空间安装 fwmark 策略路由规则（`ip rule`），缺少 `NET_ADMIN` capability 时会失败并触发断开重连循环。确认 `docker-compose.yml` 中包含：
+
+```yaml
+cap_add:
+  - NET_ADMIN
+```
+
+修改后需要**重新创建容器**（`docker compose up -d --force-recreate`，仅 `restart` 不会重算能力集）。
 
 ---
 

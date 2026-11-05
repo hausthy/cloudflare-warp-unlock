@@ -3,8 +3,8 @@
 # warp-unlock v2.0 — 官方 Cloudflare WARP 客户端 (MASQUE) 架构
 #
 # 与 v1.x (WGCF + wireguard-go) 的根本区别：
-#   * 不创建 TUN 虚拟网卡，不修改任何路由表 —— 无需 /dev/net/tun、无需 NET_ADMIN，
-#     容器除 Docker 默认能力外零特权，可运行在任何能跑 Docker 的环境；
+#   * 不创建 TUN 虚拟网卡 —— 无需 /dev/net/tun；仅需 NET_ADMIN capability
+#     （新版 warp-svc 连接建立后会安装 fwmark 策略路由规则，官方客户端硬性要求）；
 #   * 使用 Cloudflare 官方 warp-svc 守护进程，走 MASQUE 协议（官方 proxy 模式唯一支持协议）；
 #   * GOST 作为前端：同端口 auto 协议（SOCKS5 / SOCKS4 / HTTP CONNECT）+ 可选认证。
 #
