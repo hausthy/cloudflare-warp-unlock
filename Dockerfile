@@ -32,7 +32,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl binutils; \
+    apt-get install -y --no-install-recommends ca-certificates curl binutils upx-ucl; \
     # 接入 Cloudflare 官方 APT 源（bookworm 的 apt 支持直接引用 armored 密钥，无需 gnupg）
     mkdir -p /etc/apt/keyrings; \
     curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg \
@@ -103,6 +103,17 @@ RUN set -eux; \
     echo ">>> warp-cli 路径: ${WARP_CLI}"; \
     test -n "$WARP_SVC" && test -n "$WARP_CLI"; \
     chmod 0755 "/out${WARP_SVC}" "/out${WARP_CLI}"; \
+    # ---------- UPX 压缩（风险与收益权衡后的保守方案） ----------
+    # 实测官方二进制已自带 strip，符号层面无油水；UPX 对 Go/常规 ELF 可压
+    # 约 60%。gost 与 warp-cli 压缩风险低（普通前台/IPC 客户端进程）；
+    # warp-svc 是常驻守护进程且需 fork/exec，为稳定性起见默认不压。
+    # 如需极限瘦身可自行在下方追加 upx 处理 warp-svc（需自测）。
+    if command -v upx >/dev/null 2>&1; then \
+      echo ">>> UPX 前:"; ls -lh /out/usr/local/bin/gost "/out${WARP_CLI}" | awk '{print $5, $9}'; \
+      upx -q -9 /out/usr/local/bin/gost || true; \
+      upx -q -9 "/out${WARP_CLI}" || true; \
+      echo ">>> UPX 后:"; ls -lh /out/usr/local/bin/gost "/out${WARP_CLI}" | awk '{print $5, $9}'; \
+    fi; \
     SVC_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_SVC}")"; \
     CLI_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_CLI}")"; \
     ln -sf "$SVC_REL" /out/usr/local/bin/warp-svc; \
