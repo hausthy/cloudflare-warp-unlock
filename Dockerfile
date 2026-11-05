@@ -239,3 +239,27 @@ VOLUME ["/var/lib/cloudflare-warp"]
 EXPOSE 40000/tcp
 
 ENTRYPOINT ["/entrypoint.sh"]
+
+# ------------------------------------------------------------------------------
+# Stage 3: flatten —— 重组文件系统到空镜像，物理压平全部历史层
+#
+#   Stage 2 里对基础镜像文件的删除（apt/perl/gconv/openssl 等）只是 whiteout
+#   标记：docker images 的体积仍按基础层原始文件计费，rm 不减重。本阶段把
+#   最终文件系统整体 COPY 进 scratch，被删除的文件真正从镜像中消失，同时
+#   合并全部历史层。预期额外收益 ~30MB。
+#
+#   注意：scratch 无 shell，后续无法 docker exec 进容器调试——需要排障时用
+#   `docker build --target runtime` 构建带 shell 的中间层镜像即可。
+# ------------------------------------------------------------------------------
+FROM scratch
+
+ENV TZ=Asia/Shanghai
+
+# 最终文件系统整体迁移（含 entrypoint 脚本、warp 二进制与全部依赖库）
+COPY --from=runtime / /
+
+VOLUME ["/var/lib/cloudflare-warp"]
+
+EXPOSE 40000/tcp
+
+ENTRYPOINT ["/entrypoint.sh"]
