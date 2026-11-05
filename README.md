@@ -232,7 +232,38 @@ docker build --target runtime -t warp-unlock:debug .
 | `WARP_REGION` | 空 | 期望出口地区（两位代码），非空时巡检校验 `loc=` 是否匹配 |
 | `WARP_ENDPOINT` | 空 | （高级）自定义入口 `IP:PORT`，钉住入口影响落地 colo |
 | `WARP_WATCHDOG_INTERVAL` | `60` | 看门狗巡检间隔（秒），失联自动重连 |
+| `WARP_LOG_LEVEL` | `error` | warp-svc 日志级别：`error/warn/info/debug/trace`。默认 `error` 基本静默——`warn` 层全是容器环境噪音，`info` 每小时上万行；排障时临时改 `debug`/`trace`（全量不过滤），用完改回 |
+| `WARP_LOG_FILE` | `/logs/warp.log` | warp-svc 日志落盘文件（宿主机 `./logs/warp.log`），超 10MB 自动轮转保留最近 2000 行；留空 = 仅输出 docker logs |
+| `LOG_NOISE_KEYWORDS` | 空 | 追加日志噪音拦截关键字（ERE 正则，`\|` 分隔），叠加在内置白名单之上，所有级别（除 debug/trace）生效。例：`my_noisy_span\|DeviceWithNoLimits` |
 | `GOST_VERSION` | `2.11.5` | GOST 构建版本 |
+
+### 日志系统说明
+
+| 文件（宿主机 `./logs/`） | 内容 |
+| :--- | :--- |
+| `warp.log` | warp-svc 主日志（默认 `error` 级别，静默即健康） |
+| `gost.log` | GOST 前端日志 |
+| `unlock.log` | 解锁巡检与刷 IP 记录 |
+
+- **连接状态看哪里**：注册/License 绑定/隧道连通/看门狗重连/解锁巡检均由 entrypoint 直接输出到 `docker logs`，不依赖 warp-svc 低级别日志，因此 `error` 默认档不丢关键信息
+- **ANSI 剥离**：warp-svc 输出自带颜色转义码（且不完全遵循 `RUST_LOG`），entrypoint 先剥离 ANSI 再按级别行过滤，落盘为纯文本
+- **内置噪音白名单**：容器环境已验证无害的告警（fwmark 重装提示、IPC broken pipe、UDP 端口回退、SMBios 读取失败、无 ZT 注册的遥测丢弃、网络事件转储等）已默认拦截；如仍有刺眼输出，用 `LOG_NOISE_KEYWORDS` 追加即可，无需改代码
+- **排障姿势**：`.env` 改 `WARP_LOG_LEVEL=debug` 重建看全量；检查原始字节用 `cat -v logs/warp.log`（终端渲染会吞掉转义符，别被显示骗到）
+
+### 资源占用与限制
+
+compose 已内置资源限制（服务器实测校准）：
+
+| 限制项 | 值 | 依据 |
+| :--- | :--- | :--- |
+| `mem_limit` | `512m` | 实测稳态 ~170MB（warp-svc ~150MB + gost ~30MB），2-3 倍余量；超限被 OOM Kill 后由 `restart: unless-stopped` 自动拉起 |
+| `cpus` | `1.0` | 空闲近 0%，转发时 QUIC 加解密 + 中转单核足够，防止异常失控吃满宿主机 |
+| `pids_limit` | `256` | warp-svc 以线程为主 + gost + 定时 CLI 调用，实测 ~44，防泄漏 |
+
+```bash
+# 实时核对占用与限额余量
+docker stats --no-stream warp-unlock
+```
 
 ---
 
