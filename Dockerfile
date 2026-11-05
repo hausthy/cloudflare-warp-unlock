@@ -143,6 +143,9 @@ COPY scripts/check-status.sh /app/check-status.sh
 COPY scripts/unlock-check.sh /app/unlock-check.sh
 
 RUN chmod 0755 /entrypoint.sh /app/check-status.sh /app/unlock-check.sh \
+    # /etc/localtime 在 slim 镜像里是指向 zoneinfo/Etc/UTC 的符号链接，必须先移除，
+    # 否则 cp 会沿链接写穿、留下悬空链接
+    && rm -f /etc/localtime \
     && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && echo "Asia/Shanghai" > /etc/timezone \
     # tzdata 完整 zoneinfo 约 12MB；默认时区固定为 Asia/Shanghai，仅保留该条目
