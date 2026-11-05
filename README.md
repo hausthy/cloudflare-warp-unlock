@@ -265,6 +265,19 @@ compose 已内置资源限制（服务器实测校准）：
 docker stats --no-stream warp-unlock
 ```
 
+### 强制 IPv4 出口
+
+compose 已内置 `sysctls` 禁用容器内 IPv6，出口固定为 WARP 的 v4 池（`104.28.x.x`）。
+
+**为什么需要**：WARP 隧道本身是双栈的（v4 `172.16.0.2` + v6 `2606:4700:110:xxxx`）。宿主机有 IPv6 时，warp-svc 出站解析域名会优先走 v6，出口漂移到 v6 池（`2a09:bac::/48`）——而多数流媒体风控（Netflix、Disney+ 等）主要看 IPv4 信誉库，出口协议族漂移会导致解锁状态不稳定。
+
+**注意**：`curl -4` 测不出这个差异——它只约束 curl→gost 这段本地连接，真正的出口协议族由 warp-svc 出站时决定，必须容器层禁 v6 才生效。
+
+```bash
+# 验证出口为 v4（应显示 ip=104.28.x.x 而非 2a09:bac::/48）
+curl -sm8 -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep '^ip='
+```
+
 ---
 
 ## 🧪 验证与测试

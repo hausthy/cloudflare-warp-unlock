@@ -17,6 +17,12 @@ services:
     cap_add:
       - NET_ADMIN
 
+    # 强制 IPv4 出口：容器内禁用 IPv6 后，warp-svc 只能用 A 记录 + v4 endpoint，
+    # 出口固定为 104.28.x.x（v4 信誉库对解锁场景更友好，且出口协议族不再漂移）
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1
+      - net.ipv6.conf.default.disable_ipv6=1
+
     # 如需公网暴露，请务必先配置 PROXY_USER/PROXY_PASS 认证。
 
     # 仅映射到宿主机回环地址，不向公网开放
