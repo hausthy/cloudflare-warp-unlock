@@ -278,6 +278,19 @@ compose 已内置 `sysctls` 禁用容器内 IPv6，出口固定为 WARP 的 v4 �
 curl -sm8 -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep '^ip='
 ```
 
+双栈出口验证（用 ip.sb 专用子域名，A/AAAA 记录各只剩一个，强制 warp-svc 走对应协议族出站）：
+
+```bash
+# IPv4 出口：应返回 104.28.x.x
+curl -sm8 -x socks5h://127.0.0.1:40000 https://api-ipv4.ip.sb/ip
+
+# IPv6 出口：容器已禁 v6，此处超时/失败属预期
+curl -sm8 -x socks5h://127.0.0.1:40000 https://api-ipv6.ip.sb/ip
+
+# 默认出口：禁 v6 后固定返回 104.28.x.x（协议族不再漂移）
+curl -sm8 -x socks5h://127.0.0.1:40000 https://api.ip.sb/ip
+```
+
 ---
 
 ## 🧪 验证与测试
@@ -349,6 +362,22 @@ cap_add:
 ```
 
 修改后需要**重新创建容器**（`docker compose up -d --force-recreate`，仅 `restart` 不会重算能力集）。
+
+### Q7: 服务器磁盘/内存被 Docker 吃掉了怎么办？
+
+长期迭代构建的机器常见两类膨胀，处理方式：
+
+```bash
+# 磁盘：BuildKit 构建缓存（docker system df -v 查看，迭代十几轮可积 10G+）
+docker builder prune -af     # 零风险，仅影响下次构建速度
+docker image prune -f        # 清 dangling 中间镜像
+
+# 内存：dockerd 常驻 RSS 膨胀（正常 50-80MB，可涨到 200-300MB）
+ps aux --sort=-%mem | head   # 若 dockerd RSS 明显偏高
+systemctl restart docker     # 秒级中断，容器按 unless-stopped 自动拉起
+```
+
+日常重建时顺手清理：`docker builder prune -af && docker image prune -f && docker compose up -d --build`。
 
 ---
 
