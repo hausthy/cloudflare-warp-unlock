@@ -1,35 +1,34 @@
-# WARP Unlock Docker (wireguard-go 用户态版)
+# WARP Unlock Docker v2.0（官方客户端 MASQUE 版）
 
-[![Alpine Linux](https://img.shields.io/badge/Base-Alpine_3.21-blue.svg?logo=alpinelinux)](https://alpinelinux.org/)
+[![Debian](https://img.shields.io/badge/Base-Debian_bookworm-blue.svg?logo=debian)](https://www.debian.org/)
+[![Client](https://img.shields.io/badge/Client-Cloudflare_WARP_official-orange.svg)](https://pkg.cloudflareclient.com/)
+[![Protocol](https://img.shields.io/badge/Protocol-MASQUE-red.svg)](#)
 [![Architecture](https://img.shields.io/badge/Arch-AMD64%20%7C%20ARM64-success.svg)](#)
-[![WireGuard](https://img.shields.io/badge/Driver-wireguard--go-red.svg?logo=wireguard)](https://git.zx2c4.com/wireguard-go)
-[![Size](https://img.shields.io/badge/Image_Size-~48MB-brightgreen.svg)](#)
+[![Privilege](https://img.shields.io/badge/Privilege-Zero-brightgreen.svg)](#)
 [![License](https://img.shields.io/badge/License-MIT-orange.svg)](#)
 
-专为 VPS / 云服务器打造的容器化无污染流媒体解锁网关。
+专为 VPS / 云服务器打造的容器化 Cloudflare WARP 代理网关。
 
-基于 **Alpine 3.21 + WGCF + wireguard-go + GOST + unlock.sh** 构建，采用 **全用户态 WireGuard** 网络栈，彻底解耦宿主机 Linux 内核，在完全 **非特权（Non-Privileged）** 环境下实现 Netflix、Disney+、ChatGPT 等流媒体与 AI 服务的自动刷 IP 与安全代理。
+基于 **Debian + Cloudflare 官方 warp-svc 客户端（MASQUE 协议）+ GOST** 构建：不创建 TUN 设备、不改路由表、**零特权**，通过官方 proxy 模式对外提供 **SOCKS5 / HTTP CONNECT 双协议**代理，内置看门狗自动重连与 WARP+ License 绑定。
 
 ---
 
 ## 🌟 核心特性
 
-* 🛡️ **纯用户态网络栈 (`wireguard-go`)**：
-  不依赖宿主机 `wireguard.ko` 内核模块，无需挂载 `/lib/modules`，杜绝一切特权（`privileged: false`），无论在 KVM、LXC、OpenVZ 还是云厂商定制精简内核机器上皆可 100% 稳定运行。
-* ⚡ **极速精简瘦身（仅 ~48 MB）**：
-  采用 Docker 多阶段构建（Multi-stage Build），剥离全部冗余 GNU 软件包，时区文件即拷即删，镜像体积由原来的 115 MB+ 腰斩至 **48 MB**，拉取与传输仅需 15 MB。
-* 🔄 **原生兼容 fscarmen unlock.sh 刷 IP 逻辑**：
-  内置自主编写的 `wg-quick` 兼容层包装器与进程生命周期管理器，上游脚本和定时任务（BusyBox `crond`）每 5 分钟自动检测解锁状态并无缝循环刷新高质量 IP。
-* 🌐 **路由防环与 Docker 网络隔离**：
-  * **Endpoint 静态直连**：强制 Cloudflare Anycast 对端走物理网关，彻底杜绝 UDP 报文打入隧道自身形成的死循环。
-  * **SOCKS5 入站回程隔离**：设立专用策略路由，确保宿主机客户端请求响应原路返回 Docker 网桥，绝不误入 WARP。
-  * **分段默认路由（`0.0.0.0/1` + `128.0.0.0/1`）**：全局出站走 WARP，同时完整保留容器原有网关。
-* 🔒 **高安全性本地回环绑定**：
-  GOST SOCKS5 默认严格绑定宿主机 `127.0.0.1:40000`，外网无法探测或扫描，杜绝被黑客白嫖或当作攻击跳板。
-* 🛠️ **自主 DNS 管理**：
-  剥离原 WGCF 配置中容易引发 Docker 只读文件报错的 `resolvconf` 逻辑，自主写入高可靠 Public DNS（`1.1.1.1` / `8.8.8.8`）。
-* 🔀 **脚本三级平滑降级（Waterfall Fallback）**：
-  启动时自动检测宿主机挂载（优先热加载修改）→ 缺失时在线拉取 GitLab/GitHub 最新版本 → 离线或断网时自动降级回退至镜像内置的稳定保底脚本，确保 100% 高可用。
+* 🏛️ **Cloudflare 官方客户端（warp-svc + MASQUE）**：
+  使用官方 APT 源安装的 `cloudflare-warp`，协议演进由 Cloudflare 官方跟进（proxy 模式仅支持 MASQUE），无需自行维护 WireGuard 配置生成逻辑。
+* 🛡️ **真正零特权**：
+  无需 `/dev/net/tun` 设备、无需 `NET_ADMIN`/`SYS_ADMIN` capability、无需 `privileged`，不创建虚拟网卡不修改路由——任何能跑 Docker 的环境（含受限 LXC、容器托管平台）皆可运行。
+* 🔀 **同端口双协议**：
+  GOST 前端 `auto` 协议自动识别，`40000` 端口同时接受 `socks5h://`、`socks5://` 与 `http://` 客户端。
+* 🔒 **可选代理认证**：
+  配置 `PROXY_USER` / `PROXY_PASS` 即启用 HTTP Basic + SOCKS5 user/pass 认证，公网暴露也无需担心被扫描白嫖；默认仅绑定 `127.0.0.1`。
+* ➕ **WARP+ License 一键升级**：
+  `WARP_LICENSE` 环境变量自动执行 `warp-cli registration license`，绑定结果实时反映在启动日志与诊断报告中。
+* 🐕 **隧道看门狗**：
+  定期（默认 60 秒，可调）探测 `warp=on/plus`，隧道失联自动 disconnect/connect 重连，长期无人值守稳定在线。
+* 🐳 **预构建镜像 + 每日自动重建**：
+  GitHub Actions 自动构建 AMD64/ARM64 双架构镜像并推送 Docker Hub 与 GHCR；每日定时重建，持续跟进基础镜像与官方客户端的安全更新。
 
 ---
 
@@ -39,83 +38,53 @@
 flowchart TD
     subgraph Host["宿主机 (Host)"]
         Client["远程服务器 / 本地应用"]
-        SocksPort["127.0.0.1:40000 (SOCKS5 入口)"]
+        SocksPort["127.0.0.1:40000<br>(SOCKS5 / HTTP CONNECT 入口)"]
         Client -->|仅本机回环访问| SocksPort
     end
 
-    subgraph Container["warp-unlock 容器内部 (Bridge 隔离网络)"]
-        Gost["GOST SOCKS5 代理服务 (:40000)"]
+    subgraph Container["warp-unlock 容器内部（零特权沙箱）"]
+        Gost["GOST 前端 (:40000)<br>auto 协议识别 + 可选认证"]
+        WarpSvc["warp-svc 官方守护进程<br>proxy 模式 (:40001)"]
+        Watchdog["看门狗循环<br>(trace 探测 / 失联自动重连)"]
         SocksPort -.->|端口映射| Gost
-
-        Manager["wireguard-manager 与 entrypoint<br>(生命周期、DNS、防环路由管理)"]
-        WGCF["WGCF (账户与配置生成)"]
-        WGGo["wireguard-go (用户态 WireGuard)"]
-        Unlock["unlock.sh 1.22 与 crond<br>(每5分钟定时探测 / 刷解锁IP)"]
-
-        WGCF -->|适配配置| Manager
-        Manager -->|拉起 TUN / 分段路由| WGGo
-        Gost -->|出站流量全部打入| WGGo
-        Unlock -->|检测失败自动触发重启| Manager
+        Gost -->|SOCKS5 链式转发| WarpSvc
+        Watchdog -.->|warp-cli disconnect/connect| WarpSvc
     end
 
-    subgraph Cloudflare["Cloudflare WARP 骨干网"]
-        Endpoint["Cloudflare Anycast 节点<br>(engage.cloudflareclient.com)"]
-        CFIP["干净的流媒体解锁 IP 资源池"]
-        WGGo ==>|WireGuard 隧道加密| Endpoint
+    subgraph Cloudflare["Cloudflare 骨干网"]
+        Endpoint["MASQUE 隧道 (QUIC/HTTP3)"]
+        CFIP["Cloudflare 出口 IP 资源池"]
+        WarpSvc ==>|MASQUE 加密| Endpoint
         Endpoint --> CFIP
     end
 
-    subgraph Targets["目标流媒体 / AI 平台"]
-        Netflix["Netflix (奈飞)"]
-        Disney["Disney+"]
-        ChatGPT["OpenAI (ChatGPT)"]
+    subgraph Targets["目标服务"]
+        Netflix["流媒体 / AI 平台"]
+        Any["任意 HTTPS 服务"]
         CFIP --> Netflix
-        CFIP --> Disney
-        CFIP --> ChatGPT
+        CFIP --> Any
     end
 ```
 
 ---
 
-## 🔄 解锁脚本加载与三级降级机制 (Waterfall Fallback)
+## ⚠️ v1.x → v2.0 架构变更说明
 
-为了兼顾 **本地灵活魔改**、**自动获取上游最新特性** 以及 **极端网络环境下的 100% 可用性**，容器启动阶段（`scripts/setup-unlock.sh`）引入了 **三级平滑降级（Waterfall Fallback）** 策略：
+本版本从 **WGCF + wireguard-go（WireGuard 协议）** 全面切换为 **官方客户端（MASQUE 协议）**：
 
-1. **第一优先级（宿主机挂载优先 · 本地即时生效）**：
-   * 容器启动时检测是否挂载了宿主机的 `./scripts/warp-unlock.sh`。
-   * 若存在且非空，则直接加载宿主机本地脚本。开发者可随意调试、改动或升级脚本，无需重新构建 Docker 镜像，修改立即可见。
-2. **第二优先级（在线动态拉取最新版）**：
-   * 若宿主机未挂载或本地脚本为空，容器启动时自动发起网络请求，优先从 GitLab 官方源拉取最新版 `unlock.sh`。
-   * 若遇到网络波动或解析失败，自动无缝重试 GitHub 镜像源兜底。
-3. **第三优先级（镜像内置保底降级）**：
-   * 若遇到海外源被墙、DNS 污染、GitHub 限流或机器处于纯离线局域网环境导致在线拉取失败，系统 **自动触发降级回退机制**。
-   * 直接加载在 Docker 构建阶段就已打包在镜像内部的稳定保底脚本（`/app/warp-unlock.fallback.sh`），保证容器即使完全断开外网也能 100% 成功启动完成初始化。
+| 项目 | v1.x (WGCF) | v2.0 (官方客户端 MASQUE) |
+| :--- | :--- | :--- |
+| 所需权限 | `/dev/net/tun` + `NET_ADMIN` | **无**（零特权） |
+| 协议 | WireGuard UDP | MASQUE（QUIC/HTTP3） |
+| 代理协议 | SOCKS5（GOST） | SOCKS5 + **HTTP CONNECT**（同端口） |
+| WARP+ License | `wgcf update --license-key` | `warp-cli registration license` |
+| 出口地区定向 (`WARP_REGION`) | ✅ | ❌ 不支持（官方客户端不提供） |
+| 解锁检测/自动刷 IP (`unlock.sh`) | ✅ 每 5 分钟 | ❌ 不支持，改为看门狗保活 |
+| 出口 IP 轮换 | 重连隧道即换 IP | 重启容器 / `warp-cli disconnect && connect` |
+| 适用环境 | 需 TUN 的常规 VPS | 任何 Docker 环境（含受限容器平台） |
 
-```mermaid
-flowchart TD
-    Start["容器启动 (执行 setup-unlock.sh)"] --> CheckInit{"/data/warp_unlock.sh<br>定时任务是否已存在?"}
-    
-    CheckInit -->|已存在且未指定 force| Ready["跳过初始化，直接复用既有定时任务"]
-    CheckInit -->|未初始化或指定 force| CheckMount{"【第一级检测】<br>宿主机是否挂载了本地脚本?<br>/scripts/warp-unlock.sh"}
-
-    CheckMount -->|本地挂载存在且非空| UseMount["【Tier 1: 本地挂载优先】<br>直接载入宿主机挂载的脚本<br>无需重新构建镜像，修改即时生效"]
-
-    CheckMount -->|未挂载或文件为空| FetchOnline["【Tier 2: 在线动态获取】<br>向官方源发起拉取最新上游脚本"]
-    FetchOnline --> TryGitLab{"尝试从 GitLab 官方源拉取<br>gitlab.com/fscarmen/warp_unlock"}
-    TryGitLab -->|下载成功| UseOnline["载入最新官方版本"]
-    TryGitLab -->|失败或超时| TryGitHub{"尝试从 GitHub 备用镜像拉取<br>raw.githubusercontent.com"}
-    TryGitHub -->|下载成功| UseOnline
-
-    TryGitHub -->|网络受限或离线| Fallback["【Tier 3: 镜像保底降级】<br>自动触发降级回退<br>载入镜像内置的离线保底脚本<br>/app/warp-unlock.fallback.sh"]
-
-    UseMount --> Install["安装为运行时核心脚本<br>/usr/local/bin/unlock.sh (chmod 0755)"]
-    UseOnline --> Install
-    Fallback --> Install
-
-    Install --> GenUnlock["执行初始化生成 /data/warp_unlock.sh<br>写入目标地区与检测项配置"]
-    GenUnlock --> Crond["拉起 BusyBox crond 定时守护进程<br>每 5 分钟自动检测流媒体与轮询 IP"]
-    Crond --> Finish["网关就绪 (自动守护流媒体解锁与 SOCKS5 代理)"]
-```
+> 如果依赖「地区定向 + 流媒体自动刷 IP」能力，请继续使用 v1.x（`master` 分支）；
+> 如果更看重零特权部署、官方维护与协议兼容性，v2.0 是更优解。
 
 ---
 
@@ -123,310 +92,133 @@ flowchart TD
 
 ```text
 warp-unlock-docker/
-├── Dockerfile                   # 多阶段编译构建与瘦身定义
-├── docker-compose.yml           # 容器服务编排（非特权、TUN 设备挂载）
+├── Dockerfile                   # Debian + 官方 cloudflare-warp + GOST 构建
+├── docker-compose.yml           # 零特权服务编排
 ├── .env.example                 # 环境变量配置模板
-├── .gitignore                   # Git 忽略文件
-├── README.md                    # 本说明文档
-├── config/                      # 挂载卷：持久化 WGCF 账号凭证与配置
-│   ├── wgcf-account.toml        # WARP 账号信息
-│   ├── wgcf-license             # 已绑定的 WARP+ License 记录（启用 WARP+ 时生成）
-│   └── wgcf.conf                # 适配后的 WireGuard 配置文件
-├── data/                        # 挂载卷：持久化 unlock 状态与脚本
-│   ├── warp_unlock.sh           # 生成的定时检测脚本
-│   ├── result.log               # 流媒体解锁历史记录日志
-│   ├── status.log               # 实时状态简报
-│   └── cron/                    # BusyBox crond 定时任务配置
+├── .github/workflows/
+│   └── docker-image.yml         # 预构建镜像 CI（多架构 + 每日重建）
+├── config/                      # 挂载卷：warp-svc 注册状态持久化
 ├── logs/                        # 挂载卷：GOST 运行日志
-│   └── gost.log                 # 代理连接日志
-├── tools/                       # 宿主机外置运维工具目录
-│   └── warp-ping.sh             # 链路耗时与真实 IPv4/IPv6 握手分析工具
-└── scripts/
-    ├── entrypoint.sh            # 容器主入口初始化脚本
-    ├── wireguard-manager.sh     # 用户态 wireguard-go 启停、防环路由与 DNS 管理器
-    ├── wg-quick                 # 兼容 unlock.sh 调用的透明包装层
-    ├── setup-unlock.sh          # 解锁任务自动化安装与三级降级加载逻辑
-    ├── check-status.sh          # 容器一键状态全面诊断脚本
-    └── warp-unlock.sh           # 本地可魔改脚本（优先挂载生效 / 构建保底源）
+│   └── gost.log
+├── scripts/
+│   ├── entrypoint.sh            # 注册 → License → proxy 模式 → GOST → 看门狗
+│   └── check-status.sh          # 容器一键状态诊断脚本
+└── tools/
+    └── warp-ping.sh             # 宿主机链路耗时与 IPv4/IPv6 握手分析工具
 ```
 
 ---
 
 ## 🚀 快速开始
 
-### 1. 宿主机准备
-
-确保宿主机支持标准 `/dev/net/tun`（绝大多数云服务器系统默认具备）：
+### 方案 A：预构建镜像（推荐，开箱即用）
 
 ```bash
-# 确认 TUN 设备存在
-ls -l /dev/net/tun
-# 输出示例：crw-rw-rw- 1 root root 10, 200 ... /dev/net/tun
+# Docker Hub
+docker run -d --name warp-unlock \
+  --restart unless-stopped \
+  -p 127.0.0.1:40000:40000 \
+  -v $(pwd)/config:/var/lib/cloudflare-warp \
+  hausthy/warp-unlock:latest
+
+# 或 GitHub Container Registry
+docker run -d --name warp-unlock \
+  --restart unless-stopped \
+  -p 127.0.0.1:40000:40000 \
+  -v $(pwd)/config:/var/lib/cloudflare-warp \
+  ghcr.io/hausthy/warp-unlock:latest
 ```
 
-### 2. 部署与启动
+> 镜像由 CI 每日自动重建（跟进官方客户端与基础镜像安全更新）；
+> 如需暴露公网，请先配置认证并将端口改为 `-p 0.0.0.0:40000:40000`（强烈建议配合 `PROXY_USER/PROXY_PASS`）。
+
+### 方案 B：本地构建 + docker compose
 
 ```bash
-# 进入项目目录并创建环境配置文件
-cp .env.example .env
-
-# 按需修改 .env（例如指定解锁国家或检测项）
-nano .env
-
-# 构建并启动容器
-docker compose build --pull
-docker compose up -d
-
-# 观察首次启动与初始化日志
+cp .env.example .env      # 按需修改（WARP_LICENSE、认证等）
+docker compose up -d --build
 docker compose logs -f warp-unlock
 ```
 
-> 首次启动时，容器会自动执行以下操作：
-> 1. 向 Cloudflare 注册专属免费 WARP 账户；
-> 2. 生成并优化 `wgcf.conf`，启动用户态 `wireguard-go`；
-> 3. 设置防环路由与 SOCKS5 回程策略，拉起 GOST；
-> 4. 自动初始化 `unlock.sh`，并在后台启动 `crond` 开始每 5 分钟自动巡检刷 IP。
+首次启动时容器会自动：
+1. 拉起 `warp-svc` 并注册免费 WARP 账户（状态持久化在 `./config`，重启不重复注册）；
+2. 如配置了 `WARP_LICENSE` 则绑定升级 WARP+；
+3. 切换 proxy 模式并建立 MASQUE 隧道；
+4. 启动 GOST 前端（`:40000`）与看门狗。
 
 ---
 
 ## ⚙️ 环境变量详解 (`.env`)
 
-| 变量名 | 默认值 | 允许值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `WARP_REGION` | `us` | `us`, `sg`, `jp`, `hk`, `tw`, `gb` 等两位国家代码 | 期望解锁的目标地区代码 |
-| `UNLOCK_STREAMS` | `ndc` | `n`, `d`, `c` 或其任意组合（如 `nd`, `c`, `ndc`） | 检测目标：`n` (Netflix)、`d` (Disney+)、`c` (ChatGPT) |
-| `WARP_FAMILY` | `4` | `4` 或 `6` | 流媒体检测与绑定的地址族（隧道本身仍为双栈） |
-| `WARP_AUTO_SETUP` | `1` | `1` (开启), `0` (关闭) | 首次连通后是否自动安装定时检测刷 IP 任务 |
-| `WARP_LICENSE` | 空 | 26 位 License（`xxxxxxxx-xxxxxxxx-xxxxxxxx`） | 绑定 WARP+ License，账户升级为 WARP+（流量优先级更高）；留空为免费账户 |
-| `WGCF_VERSION` | `2.2.32` | 版本号 | WGCF 客户端版本 |
-| `GOST_VERSION` | `2.11.5` | 版本号 | GOST 代理版本 |
-
----
-
-## ➕ WARP+ License 支持
-
-如果你拥有 WARP+ 的 26 位 License（可在 1.1.1.1 App 的账户设置中查看，格式为 `xxxxxxxx-xxxxxxxx-xxxxxxxx`），只需配置环境变量即可让容器内的 WARP 账户升级为 WARP+，享受更高的流量优先级与更稳定的解锁体验：
-
-```bash
-# 编辑 .env，填入你的 License
-WARP_LICENSE=AbCdEfGh-IjKlMnOp-QrStUvWx
-
-# 启动 / 重启容器，绑定自动完成
-docker compose up -d
-```
-
-**工作原理**：
-
-* 容器启动时（`entrypoint.sh`）在注册账户之后、生成 WireGuard 配置之前，自动执行 `wgcf update --license-key` 将 License 绑定到当前账户，首次启动即生成 WARP+ 账户配置；
-* 已应用的 License 会记录在持久化目录 `./config/wgcf-license`，重启容器时若环境变量与记录一致则跳过绑定，避免重复请求 Cloudflare API；
-* **更换 License**：直接修改 `.env` 中的 `WARP_LICENSE` 并重启容器，自动重新绑定新 License；
-* **绑定失败兜底**：License 无效、绑定设备数已满（单个 License 最多 5 台设备）或网络异常时，容器会记录错误日志并以免费账户继续运行，不会中断 SOCKS5 服务；
-* **不会自动降级**：已绑定 WARP+ 后若清空 `WARP_LICENSE`，账户保持 plus 状态不变；如需彻底重置为全新免费账户，可清空 `./config` 目录后重启。
-
-验证账户是否已升级为 WARP+：
-
-```bash
-# trace 输出中 warp=plus 即表示 WARP+ 生效
-docker compose exec warp-unlock curl -4 -ksm10 --interface wgcf https://www.cloudflare.com/cdn-cgi/trace | grep warp
-
-# 或查看一键诊断报告中的账户绑定状态
-docker compose exec warp-unlock /app/check-status.sh
-```
+| 变量名 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `WARP_LICENSE` | 空 | 26 位 WARP+ License（`xxxxxxxx-xxxxxxxx-xxxxxxxx`），留空为免费账户 |
+| `PROXY_USER` / `PROXY_PASS` | 空 | 代理认证（两者同时填写才生效），HTTP Basic + SOCKS5 user/pass |
+| `WARP_WATCHDOG_INTERVAL` | `60` | 看门狗巡检间隔（秒），失联自动重连 |
+| `GOST_VERSION` | `2.11.5` | GOST 构建版本 |
 
 ---
 
 ## 🧪 验证与测试
 
-### 1. 验证 SOCKS5 代理连通性
-
-在宿主机终端直接测试：
-
 ```bash
-# 查询经过 WARP 后的出口 IPv4
-curl --proxy socks5h://127.0.0.1:40000 -4 https://api-ipv4.ip.sb/ip
+# SOCKS5 模式（远程 DNS 解析）
+curl -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep warp
+# 输出 warp=on（或 plus）即代理生效
 
-# 查询经过 WARP 后的出口 IPv6
-curl --proxy socks5h://127.0.0.1:40000 -6 https://api-ipv6.ip.sb/ip
+# HTTP CONNECT 模式（同一端口）
+curl -x http://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep warp
 
-# 查看 Cloudflare 详细接入 Trace（确认 warp=on）
-curl --proxy socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace
-```
+# 查询出口 IP
+curl -x socks5h://127.0.0.1:40000 https://api.ip.sb/ip
 
-### 2. 确认安全端口监听
-
-```bash
+# 确认端口仅监听本机回环
 ss -lntp | grep 40000
-```
-**安全基线**：输出应仅包含 `127.0.0.1:40000`，绝不可出现 `0.0.0.0:40000` 或 `:::40000`。
 
-### 3. 一键完整诊断报告
-
-容器内置了一键诊断脚本，随时执行全面健康检查：
-
-```bash
+# 一键完整诊断
 docker compose exec warp-unlock /app/check-status.sh
-```
 
-### 4. 强制刷新与轮换出口 IP
-
-如遇当前 IP 被风控，可立刻手动重连更换 WARP 出口 IP（无需等待 5 分钟定时任务）：
-
-```bash
-# 秒级重连换新 IP 并直接打印在屏幕上
-docker compose exec warp-unlock wg-quick up wgcf && echo -n "新 IPv4: " && curl -s --proxy socks5h://127.0.0.1:40000 https://api-ipv4.ip.sb/ip
-
-# 手动触发一次完整的流媒体解锁检测判定并记录日志
-docker compose exec warp-unlock bash /data/warp_unlock.sh
-```
-
-### 5. 链路测速与 IPv4/IPv6 握手分析 (warp-ping)
-
-项目附带了独立的宿主机运维测试工具 `tools/warp-ping.sh`，完全独立于容器外运行，无需进入容器，直接在宿主机执行即可实锤捕获每次请求实际建立的是 IPv6 还是 IPv4：
-
-```bash
-# 赋予执行权限并直接测试（自动识别 19588 或 40000 端口）
-chmod +x tools/warp-ping.sh
-
+# 宿主机链路分析
 ./tools/warp-ping.sh chatgpt.com
-./tools/warp-ping.sh t66y.com
-./tools/warp-ping.sh netflix.com
 ```
 
 ---
 
-## 📺 联动主流远程服务器应用（分流配置示例）
+## 📺 联动 Sing-box / Xray 分流
 
-通过配置分流规则，将流媒体（Netflix/Disney+/ChatGPT）流量定向转给本项目的 SOCKS5 端口，其余流量走服务器原生 IP。
-
-### 示例 A：Sing-box (`config.json`)
-
-```json
-{
-  "outbounds": [
-    {
-      "type": "direct",
-      "tag": "direct"
-    },
-    {
-      "type": "socks",
-      "tag": "warp-unlock",
-      "server": "127.0.0.1",
-      "server_port": 40000
-    }
-  ],
-  "route": {
-    "rules": [
-      {
-        "geosite": ["netflix", "disney", "openai"],
-        "outbound": "warp-unlock"
-      }
-    ]
-  }
-}
-```
-
-### 示例 B：Xray / V2Ray (`config.json`)
-
-```json
-{
-  "outbounds": [
-    {
-      "protocol": "freedom",
-      "tag": "direct"
-    },
-    {
-      "protocol": "socks",
-      "tag": "warp-unlock",
-      "settings": {
-        "servers": [
-          {
-            "address": "127.0.0.1",
-            "port": 40000
-          }
-        ]
-      }
-    }
-  ],
-  "routing": {
-    "domainStrategy": "IPIfNonMatch",
-    "rules": [
-      {
-        "type": "field",
-        "outboundTag": "warp-unlock",
-        "domain": [
-          "geosite:netflix",
-          "geosite:disney",
-          "geosite:openai"
-        ]
-      }
-    ]
-  }
-}
-```
+与 v1.x 用法完全一致，将流媒体/AI 流量指向 `127.0.0.1:40000` 的 `socks` 出站即可（示例见 v1.x 文档或仓库历史）；HTTP 类客户端也可直接使用 `http://127.0.0.1:40000`。
 
 ---
 
-## 🔍 运维管理与常见问题 (FAQ)
+## 🔍 FAQ
 
-### Q1: 如何切换解锁地区（例如从 `us` 切换到 `sg`）？
-编辑 `.env` 文件修改 `WARP_REGION=sg`，然后执行强制重新配置：
+### Q1: 如何更换/轮换出口 IP？
 ```bash
-docker compose exec warp-unlock /app/setup-unlock.sh --force
+# 容器内重连
+docker compose exec warp-unlock warp-cli --accept-tos disconnect && \
+docker compose exec warp-unlock warp-cli --accept-tos connect
+# 或直接重启容器
+docker compose restart warp-unlock
 ```
 
-### Q2: 如何查看当前的解锁历史与实时状态？
-```bash
-# 实时跟踪刷 IP 过程与解锁结果
-tail -f data/result.log
+### Q2: 为什么没有解锁地区定向和自动刷 IP 了？
+官方客户端 proxy 模式（MASQUE）不提供出口地区选择能力，`unlock.sh` 的 WireGuard 隧道重连刷 IP 逻辑不适用。这是官方架构的取舍：换来的是零特权部署与官方长期维护。如需该能力请使用 v1.x。
 
-# 查看当前 IP 简报
-cat data/status.log
+### Q3: 如何使用 WARP+ License？
+编辑 `.env` 填入 `WARP_LICENSE` 后 `docker compose up -d`，日志出现 `WARP+ License 绑定成功` 即升级完成；失败常见原因：License 无效、设备数已满（5 台）、网络不可达。
+
+### Q4: 如何彻底重置账户？
+```bash
+docker compose down && rm -rf config/*
 ```
 
-### Q3: 为什么选择用户态 wireguard-go 而不是内核模块？
-1. **安全性高**：完全无需特权容器（`--privileged`），无需挂载宿主机 `/lib/modules`；
-2. **绝对兼容**：不受 VPS 内核版本或主机架构限制，任何标准 Linux VPS 皆可无损构建与运行。
-
-### Q4: 如何停止或彻底清理？
-```bash
-# 停止容器（保留已注册账号和数据）
-docker compose down
-
-# 若需要完全彻底重置（会清除账号与所有日志）
-docker compose down
-rm -rf config/* data/* logs/*
-```
-
-### Q5: 我想自定义或魔改 `unlock.sh` 脚本怎么办？
-直接编辑宿主机项目目录下的 `./scripts/warp-unlock.sh` 即可！
-容器在启动阶段基于 **三级降级机制** 的第一优先级：只要检测到宿主机挂载了本地脚本，就会直接优先复制并使用宿主机的文件，**完全无需重新构建 Docker 镜像**。修改后执行：
-```bash
-docker compose exec warp-unlock /app/setup-unlock.sh --force
-```
-即可实时热加载并应用你的定制修改。
-
-### Q6: 如何使用或更换 WARP+ License？
-编辑 `.env` 修改 `WARP_LICENSE` 后重启容器即可：
-```bash
-docker compose up -d
-```
-绑定结果看启动日志（`docker compose logs warp-unlock`），出现 `WARP+ License 绑定成功` 即升级完成。绑定失败时请检查：License 是否有效（26 位、未被停用）、该 License 下设备数是否已达上限（5 台）、网络是否可达 Cloudflare API。详见上文 [WARP+ License 支持](#-warp-license-支持) 章节。
-
-### Q7: 如何手动强制立刻刷新/更换 WARP 出口 IP？
-执行以下命令，即可在 **1 秒内强制重连 WireGuard 隧道并打印新 IP**：
-```bash
-docker compose exec warp-unlock wg-quick up wgcf && echo -n "新 IPv4: " && curl -s --proxy socks5h://127.0.0.1:40000 https://api-ipv4.ip.sb/ip
-```
-若需要同时手动触发完整的流媒体解锁检测与判定写入日志：
-```bash
-docker compose exec warp-unlock bash /data/warp_unlock.sh
-```
+### Q5: 公网暴露安全吗？
+默认端口仅绑定 `127.0.0.1`，外网不可达。如需公网使用：务必配置 `PROXY_USER/PROXY_PASS` 认证后再将端口映射改为 `0.0.0.0`。
 
 ---
 
 ## 📜 鸣谢与致敬
 
-* [fscarmen/warp_unlock](https://gitlab.com/fscarmen/warp_unlock)：优秀的流媒体解锁与 IP 轮询判定脚本
-* [ViRb3/wgcf](https://github.com/ViRb3/wgcf)：非官方 Cloudflare WARP 配置生成器
-* [WireGuard/wireguard-go](https://git.zx2c4.com/wireguard-go)：官方 WireGuard 用户态 Go 实现
-* [ginuerzh/gost](https://github.com/ginuerzh/gost)：功能强大的安全代理工具
+* [seiry/docker-warp-proxy](https://github.com/seiry/docker-warp-proxy)：官方客户端 proxy 模式容器化思路与 warp-cli 版本兼容处理的灵感来源
+* [ginuerzh/gost](https://github.com/ginuerzh/gost)：功能强大的安全代理工具（前端双协议与认证）
+* [Cloudflare WARP Client for Linux](https://pkg.cloudflareclient.com/)：官方客户端

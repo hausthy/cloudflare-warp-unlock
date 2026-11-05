@@ -1,0 +1,77 @@
+# 预构建镜像自动发布工作流
+# 功能对标 seiry/docker-warp-proxy 的"开箱即用 + 每日重建"：
+#   1. push 到 master / 打 v* 标签 / 手动触发时，构建并发布多架构镜像；
+#   2. 每日定时（UTC 03:00）重建 latest，确保 Alpine 基础镜像与依赖安全补丁持续跟进。
+# 发布目标：Docker Hub (hausthy/warp-unlock) + GHCR (ghcr.io/hausthy/warp-unlock)
+# 所需 Secrets：DOCKERHUB_USERNAME、DOCKERHUB_TOKEN（GHCR 使用内置 GITHUB_TOKEN）
+name: docker-image
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  schedule:
+    - cron: '0 3 * * *' # 每日 UTC 03:00（北京时间 11:00）自动重建
+  workflow_dispatch:
+
+env:
+  DOCKERHUB_IMAGE: hausthy/warp-unlock
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # secrets 仅可在 job 级 env 中读取后间接判断，用于可选的 Docker Hub 登录
+      DOCKERHUB_ENABLED: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        if: ${{ env.DOCKERHUB_ENABLED == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 标签策略：master -> latest + master；v1.2.3 -> 1.2.3 / 1.2 / 1 / latest；每日定时重建 latest
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.DOCKERHUB_IMAGE }}
+            ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=ref,event=branch
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

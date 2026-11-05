@@ -1,61 +1,41 @@
 #!/usr/bin/env bash
+# warp-unlock v2.0 一键状态诊断（官方客户端 MASQUE 架构）
 set -u
 
-echo "===== WGCF interface ====="
-ip -brief addr show wgcf 2>/dev/null || true
+echo "===== WARP daemon ====="
+warp-cli --accept-tos status 2>&1 || true
+
+echo
+echo "===== WARP settings ====="
+warp-cli --accept-tos settings 2>&1 | head -n 20 || true
 
 echo
 echo "===== WARP account ====="
-if [[ -s /etc/wireguard/wgcf-account.toml ]]; then
-  # 设备 ID 全量显示，License 仅显示首尾各 4 位避免完整泄露
-  local_dev_id="$(grep -E '^device_id' /etc/wireguard/wgcf-account.toml 2>/dev/null | cut -d'"' -f2 || true)"
-  [[ -n "$local_dev_id" ]] && echo "Device ID: $local_dev_id"
-  if [[ -s /etc/wireguard/wgcf-license ]]; then
-    lic="$(cat /etc/wireguard/wgcf-license)"
-    echo "WARP+ License: 已绑定 (${lic:0:4}****${lic: -4})"
-  else
-    echo "WARP+ License: 未绑定（免费账户）"
-  fi
+if warp-cli --accept-tos registration show 2>&1; then
+  :
 else
-  echo "未找到 wgcf-account.toml"
+  echo "未获取到注册信息（可能未完成注册）"
 fi
 
 echo
-echo "===== wireguard-go process ====="
-pgrep -fla "wireguard-go" || echo "未找到 wireguard-go 运行进程"
+echo "===== Tunnel trace (via :40000) ====="
+trace="$(curl -ksm8 -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
+if [[ -n "$trace" ]]; then
+  printf '%s\n' "$trace" | grep -E '^(warp|ip|loc|colo|MASQUE)=' || printf '%s\n' "$trace"
+  if printf '%s\n' "$trace" | grep -q '^warp=plus$'; then
+    echo ">>> 账户状态：WARP+ 已生效"
+  elif printf '%s\n' "$trace" | grep -q '^warp=on$'; then
+    echo ">>> 账户状态：WARP（免费）"
+  fi
+else
+  echo "无法通过 :40000 获取 trace（代理或隧道可能未就绪）"
+fi
 
 echo
-echo "===== WireGuard status ====="
-wg show wgcf 2>/dev/null || true
+echo "===== Processes ====="
+pgrep -fla "warp-svc" || echo "未找到 warp-svc 运行进程"
+pgrep -fla "gost" || echo "未找到 gost 运行进程"
 
 echo
-echo "===== Policy rules ====="
-ip -4 rule show
-ip -6 rule show 2>/dev/null || true
-
-echo
-echo "===== Active Routes ====="
-ip -4 route show
-ip -6 route show 2>/dev/null || true
-
-echo
-echo "===== DNS (resolv.conf) ====="
-cat /etc/resolv.conf 2>/dev/null || true
-
-echo
-echo "===== WARP trace IPv4 ====="
-curl -4 -ksm10 --interface wgcf https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null |
-  grep -E '^(ip|warp|loc)=' || echo "WARP IPv4 连接失败或未连通"
-
-echo
-echo "===== WARP trace IPv6 ====="
-curl -6 -ksm10 --interface wgcf https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null |
-  grep -E '^(ip|warp|loc)=' || echo "WARP IPv6 未启用或未连通"
-
-echo
-echo "===== SOCKS5 listener ====="
-ss -lntp | grep ':40000' || true
-
-echo
-echo "===== Unlock cron ====="
-cat /var/spool/cron/crontabs/root 2>/dev/null || true
+echo "===== Listening ports ====="
+ss -Hln "sport = :40000" 2>/dev/null || netstat -Hln 2>/dev/null | grep 40000 || true
