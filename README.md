@@ -126,7 +126,7 @@ docker run -d --name warp-unlock \
   --cap-add NET_ADMIN \
   -p 127.0.0.1:40000:40000 \
   -v $(pwd)/config:/var/lib/cloudflare-warp \
-  hausthy/warp-unlock:latest
+  hausthy/cloudflare-warp-unlock:latest
 
 # 或 GitHub Container Registry
 docker run -d --name warp-unlock \
@@ -134,7 +134,7 @@ docker run -d --name warp-unlock \
   --cap-add NET_ADMIN \
   -p 127.0.0.1:40000:40000 \
   -v $(pwd)/config:/var/lib/cloudflare-warp \
-  ghcr.io/hausthy/warp-unlock:latest
+  ghcr.io/hausthy/cloudflare-warp-unlock:latest
 ```
 
 > 镜像由 CI 每日自动重建（跟进官方客户端与基础镜像安全更新）；

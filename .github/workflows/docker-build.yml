@@ -57,8 +57,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/warp-unlock:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/warp-unlock:masque-${{ steps.tag.outputs.value }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/cloudflare-warp-unlock:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/cloudflare-warp-unlock:masque-${{ steps.tag.outputs.value }}
           build-args: |
             UPX_WARP_SVC=${{ inputs.upx_warp_svc || '1' }}
           # 开启 GitHub Actions 缓存加速

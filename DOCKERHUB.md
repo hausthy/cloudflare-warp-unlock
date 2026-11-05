@@ -60,7 +60,7 @@ docker run -d \
   --cap-add NET_ADMIN \
   -p 127.0.0.1:40000:40000 \
   -v $(pwd)/config:/var/lib/cloudflare-warp \
-  hausthy/warp-unlock:latest
+  hausthy/cloudflare-warp-unlock:latest
 ```
 
 ### 方案 B：docker compose
@@ -69,7 +69,7 @@ docker run -d \
 services:
   warp-unlock:
     container_name: warp-unlock
-    image: hausthy/warp-unlock:latest
+    image: hausthy/cloudflare-warp-unlock:latest
     restart: unless-stopped
     init: true
     ports:
