@@ -265,18 +265,19 @@ compose 已内置资源限制（服务器实测校准）：
 docker stats --no-stream warp-unlock
 ```
 
-### 强制 IPv4 出口
+### 出口协议族说明（默认双栈）
 
-compose 已内置 `sysctls` 禁用容器内 IPv6，出口固定为 WARP 的 v4 池（`104.28.x.x`）。
+默认配置下 WARP 出口是**双栈漂移**的：WARP 隧道本身同时持有 v4（出口池 `104.28.x.x`）和 v6（出口池 `2a09:bac::/48`），warp-svc 出站解析域名时若宿主机有 IPv6 则优先走 v6。trace 里 `ip=` 显示哪个族，取决于该次连接实际走的协议族（`curl -4` 测不出差异——它只约束 curl→gost 本地段，出口协议族由 warp-svc 出站决定）。
 
-**为什么需要**：WARP 隧道本身是双栈的（v4 `172.16.0.2` + v6 `2606:4700:110:xxxx`）。宿主机有 IPv6 时，warp-svc 出站解析域名会优先走 v6，出口漂移到 v6 池（`2a09:bac::/48`）——而多数流媒体风控（Netflix、Disney+ 等）主要看 IPv4 信誉库，出口协议族漂移会导致解锁状态不稳定。
+**可选：强制 IPv4 出口**。多数流媒体风控（Netflix、Disney+ 等）主要看 IPv4 信誉库，若出口协议族漂移导致解锁不稳定，可在 `docker-compose.yml` 的服务下加：
 
-**注意**：`curl -4` 测不出这个差异——它只约束 curl→gost 这段本地连接，真正的出口协议族由 warp-svc 出站时决定，必须容器层禁 v6 才生效。
-
-```bash
-# 验证出口为 v4（应显示 ip=104.28.x.x 而非 2a09:bac::/48）
-curl -sm8 -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep '^ip='
+```yaml
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1
+      - net.ipv6.conf.default.disable_ipv6=1
 ```
+
+改后需**重建容器**（`docker compose up -d`，`restart` 不生效）。
 
 双栈出口验证（用 ip.sb 专用子域名，A/AAAA 记录各只剩一个，强制 warp-svc 走对应协议族出站）：
 
@@ -284,10 +285,10 @@ curl -sm8 -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace 
 # IPv4 出口：应返回 104.28.x.x
 curl -sm8 -x socks5h://127.0.0.1:40000 https://api-ipv4.ip.sb/ip
 
-# IPv6 出口：容器已禁 v6，此处超时/失败属预期
+# IPv6 出口：未禁 v6 时返回 2a09:bac::/48 地址；已禁则超时/失败
 curl -sm8 -x socks5h://127.0.0.1:40000 https://api-ipv6.ip.sb/ip
 
-# 默认出口：禁 v6 后固定返回 104.28.x.x（协议族不再漂移）
+# 默认出口：未禁 v6 时随解析漂移；已禁则固定返回 104.28.x.x
 curl -sm8 -x socks5h://127.0.0.1:40000 https://api.ip.sb/ip
 ```
 
