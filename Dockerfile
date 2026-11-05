@@ -26,13 +26,15 @@ FROM docker.io/debian:${DEBIAN_RELEASE}-slim AS builder
 
 ARG DEBIAN_RELEASE
 ARG GOST_VERSION=2.11.5
+ARG UPX_VERSION=4.2.4
 ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl binutils upx-ucl; \
+    # 注意：bookworm 源里没有 upx-ucl 包，改用 UPX 官方 GitHub 静态二进制
+    apt-get install -y --no-install-recommends ca-certificates curl binutils; \
     # 接入 Cloudflare 官方 APT 源（bookworm 的 apt 支持直接引用 armored 密钥，无需 gnupg）
     mkdir -p /etc/apt/keyrings; \
     curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg \
@@ -108,12 +110,23 @@ RUN set -eux; \
     # 约 60%。gost 与 warp-cli 压缩风险低（普通前台/IPC 客户端进程）；
     # warp-svc 是常驻守护进程且需 fork/exec，为稳定性起见默认不压。
     # 如需极限瘦身可自行在下方追加 upx 处理 warp-svc（需自测）。
-    if command -v upx >/dev/null 2>&1; then \
-      echo ">>> UPX 前:"; ls -lh /out/usr/local/bin/gost "/out${WARP_CLI}" | awk '{print $5, $9}'; \
-      upx -q -9 /out/usr/local/bin/gost || true; \
-      upx -q -9 "/out${WARP_CLI}" || true; \
-      echo ">>> UPX 后:"; ls -lh /out/usr/local/bin/gost "/out${WARP_CLI}" | awk '{print $5, $9}'; \
-    fi; \
+    # ---------- UPX 下载（GitHub 静态二进制，按构建架构选择） ----------
+    case "${TARGETARCH}" in \
+      amd64) UPX_ARCH=amd64 ;; \
+      arm64) UPX_ARCH=arm64 ;; \
+      *) echo "不支持的构建架构: ${TARGETARCH}"; exit 1 ;; \
+    esac; \
+    curl -fsSL --retry 3 \
+      "https://github.com/upx/upx/releases/download/v${UPX_VERSION}/upx-${UPX_VERSION}-${UPX_ARCH}_linux.tar.xz" \
+      -o /tmp/upx.tar.xz; \
+    mkdir -p /tmp/upx; \
+    tar -xJf /tmp/upx.tar.xz -C /tmp/upx --strip-components=1; \
+    test -x /tmp/upx/upx; \
+    echo ">>> UPX 前:"; ls -lh /out/usr/local/bin/gost "/out${WARP_CLI}" | awk '{print $5, $9}'; \
+    /tmp/upx/upx -q -9 /out/usr/local/bin/gost || true; \
+    /tmp/upx/upx -q -9 "/out${WARP_CLI}" || true; \
+    echo ">>> UPX 后:"; ls -lh /out/usr/local/bin/gost "/out${WARP_CLI}" | awk '{print $5, $9}'; \
+    rm -rf /tmp/upx /tmp/upx.tar.xz; \
     SVC_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_SVC}")"; \
     CLI_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_CLI}")"; \
     ln -sf "$SVC_REL" /out/usr/local/bin/warp-svc; \
