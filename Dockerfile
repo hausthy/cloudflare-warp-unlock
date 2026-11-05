@@ -9,16 +9,18 @@
 #   * GOST 作为前端：同端口 auto 协议（SOCKS5 / SOCKS4 / HTTP CONNECT）+ 可选认证。
 #
 # 分层构建（Multi-stage）：
-#   Stage 1 builder —— apt --download-only 精确解析最小依赖闭包（含 dlopen 库，
-#          如 libtss2-*），逐包 dpkg -x 解包到 /out；GOST 一并在此下载。
-#   Stage 2 runtime —— 仅安装 ca-certificates / curl / tzdata / dbus 四个运行时必需包，
-#          COPY /out 增量即得最终镜像。apt 缓存、文档、安装工具不进入最终层。
+#   Stage 1 builder —— 真实安装 cloudflare-warp 后，按 ldd 精确拷贝 warp-svc /
+#          warp-cli 的全部传递依赖，并显式补上 dlopen 加载的 libtss2-*（TPM2）
+#          与 /usr/lib/warp 数据目录；GUI 依赖栈（GTK/gstreamer 等，约 400MB）
+#          完全不进 /out。GOST 一并在此下载。
+#   Stage 2 runtime —— 仅安装 ca-certificates / curl / tzdata / dbus 四个运行时
+#          必需包，COPY /out 增量即得最终镜像。
 # ==============================================================================
 
 ARG DEBIAN_RELEASE=bookworm
 
 # ------------------------------------------------------------------------------
-# Stage 1: builder —— 收集官方客户端全部 DEB 依赖并组装运行时增量
+# Stage 1: builder —— 安装官方客户端并抽取最小运行时集
 # ------------------------------------------------------------------------------
 FROM docker.io/debian:${DEBIAN_RELEASE}-slim AS builder
 
@@ -38,21 +40,31 @@ RUN set -eux; \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/cloudflare-warp.asc] https://pkg.cloudflareclient.com/ ${DEBIAN_RELEASE} main" \
       > /etc/apt/sources.list.d/cloudflare-client.list; \
     apt-get update; \
-    # ---------- 用 apt 精确解析最小依赖闭包并仅下载不安装 ----------
-    # 注意：不能用 apt-cache depends --recurse——其 --no-recommends/--no-suggests
-    # 参数对递归子依赖不生效，会把 recommends 一并拉进来，闭包膨胀到 GB 级。
-    # apt-get install --download-only 才是 apt 真实会安装的最小闭包。
-    # （docker-clean 会在 apt 事务后清空 /var/cache/apt/archives，先移除以保留 .deb）
-    rm -f /etc/apt/apt.conf.d/docker-clean; \
-    apt-get install --download-only --no-install-recommends -y cloudflare-warp; \
-    echo ">>> 依赖闭包大小: $(du -sh /var/cache/apt/archives | cut -f1)"; \
-    # ---------- 逐包解包到 /out ----------
+    # ---------- 真实安装（builder 内 ldd 才能解析完整传递依赖） ----------
+    # 注意：cloudflare-warp 的 deb 硬依赖整套 GUI 栈（GTK3/gstreamer/fonts，
+    # 约 400MB），但 warp-svc/warp-cli 完全用不到；因此不解包整个 deb 闭包，
+    # 而是只按动态链接关系抽取最小运行时集。
+    apt-get install -y --no-install-recommends cloudflare-warp; \
+    # ---------- 拷贝 warp 二进制及其全部传递动态库依赖 ----------
     mkdir -p /out; \
-    for deb in /var/cache/apt/archives/*.deb; do dpkg -x "$deb" /out; done; \
+    for bin in /usr/bin/warp-svc /usr/bin/warp-cli; do \
+      cp --parents "$bin" /out/; \
+      ldd "$bin" 2>/dev/null \
+        | awk '{if ($3 ~ /^\//) print $3; else if ($1 ~ /^\//) print $1}' \
+        | sort -u > /tmp/libs.txt; \
+      while read -r lib; do cp --parents "$lib" /out/; done < /tmp/libs.txt; \
+    done; \
+    # warp-svc 运行时 dlopen 的 TPM2 库——ldd 静态解析不到，必须显式带上
+    for lib in /usr/lib/*/libtss2*; do \
+      [ -e "$lib" ] && cp --parents "$lib" /out/ || true; \
+    done; \
+    # 客户端自带运行时数据目录（守护进程加载的辅助资源）
+    [ -d /usr/lib/warp ] && cp -a --parents /usr/lib/warp /out/ || true; \
+    [ -d /etc/cloudflare-warp ] && cp -a --parents /etc/cloudflare-warp /out/ || true; \
     # ---------- merged-usr 归一化 ----------
-    # bookworm 的 /bin、/sbin、/lib、/lib64 是指向 /usr 的符号链接；若部分 deb 解包出
-    # 同名真实目录，COPY 到 runtime 会与符号链接冲突（cannot copy to non-directory）。
-    # 统一并入 /usr 对应目录，保证 /out 只包含 usr/、etc/ 等真实目录。
+    # bookworm 的 /bin、/sbin、/lib、/lib64 是指向 /usr 的符号链接；ldd 解析出的
+    # 库按绝对路径复制会产生 /out/lib 等真实目录，COPY 到 runtime 会与符号链接
+    # 冲突（cannot copy to non-directory）。统一并入 /usr 对应目录。
     for d in bin sbin lib lib64; do \
       if [ -d "/out/$d" ]; then \
         mkdir -p "/out/usr/$d"; \
@@ -60,11 +72,6 @@ RUN set -eux; \
         rm -rf "/out/$d"; \
       fi; \
     done; \
-    # 剪裁运行时用不到的内容，进一步瘦身（/var 由 runtime 自建，不搬运）
-    rm -rf /out/lib/systemd /out/usr/lib/systemd /out/etc/systemd \
-           /out/usr/share/doc /out/usr/share/man /out/usr/share/info \
-           /out/usr/share/lintian /out/usr/share/bug /out/usr/share/locale \
-           /out/var /out/run /out/debs; \
     # ---------- 下载 GOST（静态单文件，用于前端 auto 协议与可选认证） ----------
     case "${TARGETARCH}" in \
       amd64) GOST_ARCH=amd64 ;; \
@@ -78,16 +85,14 @@ RUN set -eux; \
     gzip -dc /tmp/gost.gz > /out/usr/local/bin/gost; \
     chmod 0755 /out/usr/local/bin/gost; \
     rm -f /tmp/gost.gz; \
-    # ---------- 定位 warp 二进制并设置 PATH 兜底符号链接 ----------
+    # ---------- PATH 兜底符号链接（必须用相对路径：绝对目标会在 builder 内
+    # 解析到 builder 自身文件系统导致断言失败） ----------
     WARP_SVC="$(find /out -name warp-svc -type f | head -n1 | sed "s|^/out||")"; \
     WARP_CLI="$(find /out -name warp-cli -type f | head -n1 | sed "s|^/out||")"; \
-    echo ">>> warp-svc 解包路径: ${WARP_SVC}"; \
-    echo ">>> warp-cli 解包路径: ${WARP_CLI}"; \
+    echo ">>> warp-svc 路径: ${WARP_SVC}"; \
+    echo ">>> warp-cli 路径: ${WARP_CLI}"; \
     test -n "$WARP_SVC" && test -n "$WARP_CLI"; \
     chmod 0755 "/out${WARP_SVC}" "/out${WARP_CLI}"; \
-    # 符号链接必须用相对路径：绝对目标 /usr/bin/warp-svc 在 builder 内会解析到
-    # builder 自身文件系统（未安装 deb）导致断言失败；相对路径在 /out 自检与
-    # runtime 中均指向 /out 内和镜像内的真实文件。
     SVC_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_SVC}")"; \
     CLI_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_CLI}")"; \
     ln -sf "$SVC_REL" /out/usr/local/bin/warp-svc; \
@@ -95,14 +100,10 @@ RUN set -eux; \
     # 构建期断言：二进制必须就位且可执行，否则立即失败暴露问题
     test -x /out/usr/local/bin/warp-svc; \
     test -x /out/usr/local/bin/warp-cli; \
-    # 删除用不到的附属工具（warp-diag 诊断收集器等可能上百 MB）
-    rm -f /out/usr/bin/warp-diag /out/usr/bin/warp-debug \
-          /out/usr/bin/warp-diag-service /out/usr/bin/warp-tunnel \
-          /out/usr/bin/warp-util 2>/dev/null || true; \
     # 打印 /out 体积分布，便于排查镜像膨胀
     echo ">>> /out 总体积: $(du -sh /out | cut -f1)"; \
     du -xh -d2 /out/usr | sort -rh | head -12; \
-    # ---------- 清理构建期产物（不进入任何镜像层记录也无妨，双保险） ----------
+    # ---------- 清理构建期产物 ----------
     rm -rf /var/cache/apt/archives/*.deb /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # ------------------------------------------------------------------------------
