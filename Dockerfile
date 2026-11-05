@@ -54,6 +54,18 @@ RUN set -eux; \
     mkdir -p /out/usr/local/bin; \
     mv /out-gost /out/usr/local/bin/gost; \
     chmod 0755 /out/usr/local/bin/gost; \
+    # 归一化拷贝函数：bookworm 为 merged-usr 布局，/bin、/sbin、/lib、/lib64 均为指向
+    # /usr 的符号链接。若按绝对路径在 /out 下生成同名真实目录，COPY 到 runtime 时会与
+    # 符号链接冲突（cannot copy to non-directory）。因此统一归一化到 /usr/ 真实目录下。
+    copy_norm() { \
+      src="$1"; \
+      rel="${src#/}"; \
+      case "$rel" in \
+        bin/*|sbin/*|lib/*|lib64/*) rel="usr/$rel" ;; \
+      esac; \
+      mkdir -p "/out/$(dirname "$rel")"; \
+      cp -a "$src" "/out/$rel"; \
+    }; \
     # 用 dpkg 精确定位 warp 二进制的真实安装路径（不假设 /usr/bin，兼容 sbin 等布局）
     WARP_SVC="$(dpkg -L cloudflare-warp | grep -E '/warp-svc$' | head -n1)"; \
     WARP_CLI="$(dpkg -L cloudflare-warp | grep -E '/warp-cli$' | head -n1)"; \
@@ -62,19 +74,19 @@ RUN set -eux; \
     test -n "$WARP_SVC" && test -n "$WARP_CLI"; \
     # 拷贝二进制及全部动态库依赖（ldd 解析，天然兼容静态二进制的空输出）
     for src in "$WARP_SVC" "$WARP_CLI"; do \
-      cp --parents "$src" /out/; \
+      copy_norm "$src"; \
       ldd "$src" 2>/dev/null \
         | awk '{if ($3 ~ /^\//) print $3; else if ($1 ~ /^\//) print $1}' \
         | sort -u \
-        | while read -r lib; do cp --parents "$lib" /out/; done; \
+        | while read -r lib; do copy_norm "$lib"; done; \
     done; \
     # PATH 兜底：在 /usr/local/bin 放符号链接，无论真实安装路径在哪都能被 exec 找到
     ln -sf "$WARP_SVC" /out/usr/local/bin/warp-svc; \
     ln -sf "$WARP_CLI" /out/usr/local/bin/warp-cli; \
-    # 构建期断言：二进制必须就位，否则立即失败暴露问题（而不是等容器运行时才炸）
-    test -x "/out${WARP_SVC}"; \
-    test -x "/out${WARP_CLI}"; \
-    # 附带客户端的数据/配置目录（存在才拷贝，不影响运行时自动创建）
+    # 构建期断言：符号链接指向的二进制必须存在且可执行，否则立即失败暴露问题
+    test -x /out/usr/local/bin/warp-svc; \
+    test -x /out/usr/local/bin/warp-cli; \
+    # 附带客户端的数据/配置目录（/etc 与 /usr/share 为真实目录，无符号链接冲突）
     for d in /etc/cloudflare-warp /usr/share/cloudflare-warp; do \
       [ -d "$d" ] && cp -a --parents "$d" /out/ || true; \
     done
