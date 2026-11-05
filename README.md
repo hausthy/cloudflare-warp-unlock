@@ -152,6 +152,38 @@ docker compose logs -f warp-unlock
 3. 切换 proxy 模式并建立 MASQUE 隧道；
 4. 启动 GOST 前端（`:40000`）与看门狗。
 
+### 方案 C：从源码构建测试（服务器）
+
+```bash
+# 1. 克隆分支（HTTPS 免登录；国内服务器慢可加镜像前缀 https://ghfast.top/）
+git clone -b feat/masque-official-client https://github.com/hausthy/warp_unlock.git warp-unlock-v2
+cd warp-unlock-v2
+
+# 2. 准备环境变量（按需填写 WARP_LICENSE / WARP_REGION / UNLOCK_STREAMS 等）
+cp .env.example .env
+
+# 3. 分层构建并启动（首次构建约 2-4 分钟，需可访问 pkg.cloudflareclient.com 与 GitHub）
+docker compose up -d --build
+
+# 4. 跟踪启动日志，看到 "WARP (MASQUE) 隧道已连通" 即成功
+docker compose logs -f warp-unlock
+
+# 5. 验证代理（SOCKS5 与 HTTP CONNECT 同端口）
+curl -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep warp
+curl -x http://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep warp
+
+# 6. 一键诊断（含解锁检测实时结果与巡检历史）
+docker compose exec warp-unlock /app/check-status.sh
+
+# 7. 跟踪解锁巡检记录
+tail -f logs/unlock.log
+
+# 8. 查看镜像体积（验证分层瘦身效果）
+docker images | grep warp-unlock
+```
+
+> 测试完成后清理：`docker compose down`；彻底重来（清账户）：`docker compose down && rm -rf config/*`
+
 ---
 
 ## ⚙️ 环境变量详解 (`.env`)

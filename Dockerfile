@@ -7,42 +7,39 @@
 #     容器除 Docker 默认能力外零特权，可运行在任何能跑 Docker 的环境；
 #   * 使用 Cloudflare 官方 warp-svc 守护进程，走 MASQUE 协议（官方 proxy 模式唯一支持协议）；
 #   * GOST 作为前端：同端口 auto 协议（SOCKS5 / SOCKS4 / HTTP CONNECT）+ 可选认证。
+#
+# 分层构建（Multi-stage）：
+#   Stage 1 builder —— 接入 Cloudflare APT 源并完整安装 cloudflare-warp，随后用 ldd
+#          解析 warp-svc / warp-cli 的全部动态库依赖，连同二进制与数据文件组装成
+#          /out 根文件系统增量；GOST 一并在此下载。gnupg/curl 等安装工具全部留在本层。
+#   Stage 2 runtime —— 仅安装 ca-certificates / curl / tzdata 三个运行时必需包，
+#          COPY /out 增量即得最终镜像。apt 缓存、文档、gnupg、socat 一概不进入最终层。
 # ==============================================================================
 
 ARG DEBIAN_RELEASE=bookworm
-FROM docker.io/debian:${DEBIAN_RELEASE}-slim
+
+# ------------------------------------------------------------------------------
+# Stage 1: builder —— 安装官方客户端并组装运行时增量
+# ------------------------------------------------------------------------------
+FROM docker.io/debian:${DEBIAN_RELEASE}-slim AS builder
 
 ARG DEBIAN_RELEASE
 ARG GOST_VERSION=2.11.5
 ARG TARGETARCH
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    TZ=Asia/Shanghai
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends \
-      gnupg ca-certificates curl socat tzdata; \
-    # 接入 Cloudflare 官方 APT 源，安装 warp-svc / warp-cli
+    apt-get install -y --no-install-recommends gnupg ca-certificates curl; \
+    # 接入 Cloudflare 官方 APT 源
     curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg \
       | gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg; \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ ${DEBIAN_RELEASE} main" \
       > /etc/apt/sources.list.d/cloudflare-client.list; \
     apt-get update; \
     apt-get install -y --no-install-recommends cloudflare-warp; \
-    # ---------- 镜像瘦身 ----------
-    # 1. gnupg 仅构建期导入密钥用，运行时不需要，连依赖一并移除
-    apt-get purge -y --auto-remove gnupg; \
-    apt-get autoremove -y; \
-    apt-get clean; \
-    # 2. 剥离文档、man 页、翻译与日志缓存（不影响运行）
-    rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/info/* /usr/share/locale/* \
-           /usr/share/oem /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/*; \
-    # 3. 清理 warp 包自带的系统服务和 desktop 条目（容器内无用）
-    rm -rf /etc/systemd/system /usr/lib/systemd /lib/systemd /usr/share/applications 2>/dev/null || true
-
-# 下载 GOST（静态单文件，用于前端 auto 协议与可选认证）
-RUN set -eux; \
+    # 下载 GOST（静态单文件，用于前端 auto 协议与可选认证）
     case "${TARGETARCH}" in \
       amd64) GOST_ARCH=amd64 ;; \
       arm64) GOST_ARCH=armv8 ;; \
@@ -51,9 +48,43 @@ RUN set -eux; \
     curl -fsSL --retry 3 \
       "https://github.com/ginuerzh/gost/releases/download/v${GOST_VERSION}/gost-linux-${GOST_ARCH}-${GOST_VERSION}.gz" \
       -o /tmp/gost.gz; \
-    gzip -dc /tmp/gost.gz > /usr/local/bin/gost; \
-    chmod 0755 /usr/local/bin/gost; \
-    rm -f /tmp/gost.gz
+    gzip -dc /tmp/gost.gz > /out-gost; \
+    rm -f /tmp/gost.gz; \
+    # ---------- 组装 /out 运行时增量 ----------
+    mkdir -p /out/usr/local/bin; \
+    mv /out-gost /out/usr/local/bin/gost; \
+    chmod 0755 /out/usr/local/bin/gost; \
+    # 拷贝 warp 二进制及其全部动态库依赖（ldd 解析，兼容静态二进制的报错场景）
+    for bin in /usr/bin/warp-svc /usr/bin/warp-cli; do \
+      cp --parents "$bin" /out/; \
+      ldd "$bin" 2>/dev/null \
+        | awk '{if ($3 ~ /^\//) print $3; else if ($1 ~ /^\//) print $1}' \
+        | sort -u \
+        | while read -r lib; do cp --parents "$lib" /out/; done; \
+    done; \
+    # 附带客户端的数据/配置目录（存在才拷贝，不影响运行时自动创建）
+    for d in /etc/cloudflare-warp /usr/share/cloudflare-warp; do \
+      [ -d "$d" ] && cp -a --parents "$d" /out/ || true; \
+    done
+
+# ------------------------------------------------------------------------------
+# Stage 2: runtime —— 极简运行时
+# ------------------------------------------------------------------------------
+FROM docker.io/debian:${DEBIAN_RELEASE}-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Asia/Shanghai
+
+# 仅安装运行时必需包，并即时清理 apt 缓存与文档，杜绝缓存进入镜像层
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl tzdata; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/* \
+           /usr/share/doc/* /usr/share/man/* /usr/share/info/* /usr/share/locale/*
+
+# 从 builder 层拷贝运行时增量：warp 二进制 + 动态库 + 数据目录 + GOST
+COPY --from=builder /out/ /
 
 COPY scripts/entrypoint.sh /entrypoint.sh
 COPY scripts/check-status.sh /app/check-status.sh
@@ -61,7 +92,8 @@ COPY scripts/unlock-check.sh /app/unlock-check.sh
 
 RUN chmod 0755 /entrypoint.sh /app/check-status.sh /app/unlock-check.sh \
     && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-    && echo "Asia/Shanghai" > /etc/timezone
+    && echo "Asia/Shanghai" > /etc/timezone \
+    && mkdir -p /logs /var/lib/cloudflare-warp
 
 # 注册状态持久化目录（warp-svc 数据目录；挂载宿主机 ./config 可跨容器重启保留账户）
 VOLUME ["/var/lib/cloudflare-warp"]
