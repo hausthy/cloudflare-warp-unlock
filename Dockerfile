@@ -27,6 +27,9 @@ FROM docker.io/debian:${DEBIAN_RELEASE}-slim AS builder
 ARG DEBIAN_RELEASE
 ARG GOST_VERSION=2.11.5
 ARG UPX_VERSION=4.2.4
+# UPX 同时压缩 warp-svc（默认 0 关闭）。压后镜像可再省 ~60MB，但 warp-svc 是
+# 常驻守护进程，压缩属于非常规操作；如连接异常请用 --build-arg UPX_WARP_SVC=0 回退
+ARG UPX_WARP_SVC=0
 ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -126,7 +129,11 @@ RUN set -eux; \
     echo ">>> UPX 前:"; ls -lh /out/usr/local/bin/gost "/out${WARP_CLI}" | awk '{print $5, $9}'; \
     /tmp/upx/upx -q -9 /out/usr/local/bin/gost || true; \
     /tmp/upx/upx -q -9 "/out${WARP_CLI}" || true; \
-    echo ">>> UPX 后:"; ls -lh /out/usr/local/bin/gost "/out${WARP_CLI}" | awk '{print $5, $9}'; \
+    # 可选：压缩 warp-svc（见文件头 ARG UPX_WARP_SVC 说明）
+    if [ "${UPX_WARP_SVC}" = "1" ]; then \
+      /tmp/upx/upx -q -9 "/out${WARP_SVC}" || true; \
+    fi; \
+    echo ">>> UPX 后:"; ls -lh /out/usr/local/bin/gost "/out${WARP_CLI}" "/out${WARP_SVC}" | awk '{print $5, $9}'; \
     rm -rf /tmp/upx /tmp/upx.tar.xz; \
     SVC_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_SVC}")"; \
     CLI_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_CLI}")"; \
