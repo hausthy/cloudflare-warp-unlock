@@ -1,7 +1,8 @@
 # 预构建镜像自动发布工作流
-# 功能对标 seiry/docker-warp-proxy 的"开箱即用 + 每日重建"：
+# 功能：
 #   1. push 到 master / 打 v* 标签 / 手动触发时，构建并发布多架构镜像；
-#   2. 每日定时（UTC 03:00）重建 latest，确保 Alpine 基础镜像与依赖安全补丁持续跟进。
+#   2. 每日定时（UTC 03:00）重建 latest，确保 Debian 基础镜像与依赖安全补丁持续跟进；
+#   3. 手动触发时可选择 UPX_WARP_SVC（默认 1 = UPX 压缩 warp-svc，~139MB）。
 # 发布目标：Docker Hub (hausthy/warp-unlock) + GHCR (ghcr.io/hausthy/warp-unlock)
 # 所需 Secrets：DOCKERHUB_USERNAME、DOCKERHUB_TOKEN（GHCR 使用内置 GITHUB_TOKEN）
 name: docker-image
@@ -13,6 +14,11 @@ on:
   schedule:
     - cron: '0 3 * * *' # 每日 UTC 03:00（北京时间 11:00）自动重建
   workflow_dispatch:
+    inputs:
+      upx_warp_svc:
+        description: 'UPX 压缩 warp-svc（1=开启 ~139MB，0=关闭 ~190MB）'
+        required: false
+        default: '1'
 
 env:
   DOCKERHUB_IMAGE: hausthy/warp-unlock
@@ -73,5 +79,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # 手动触发时取 workflow 输入；push/定时触发时取 Dockerfile 默认（1）
+          build-args: |
+            UPX_WARP_SVC=${{ inputs.upx_warp_svc || '1' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
