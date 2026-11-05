@@ -9,10 +9,9 @@
 #   * GOST 作为前端：同端口 auto 协议（SOCKS5 / SOCKS4 / HTTP CONNECT）+ 可选认证。
 #
 # 分层构建（Multi-stage）：
-#   Stage 1 builder —— 递归解析 cloudflare-warp 的全部 DEB 依赖包，逐个下载并用
-#          dpkg -x 解包到 /out（覆盖 ldd 静态解析不到的 dlopen 库，如 libtss2-*）；
-#          GOST 一并在此下载。gnupg/socat 等安装工具一概不需要。
-#   Stage 2 runtime —— 仅安装 ca-certificates / curl / tzdata 三个运行时必需包，
+#   Stage 1 builder —— apt --download-only 精确解析最小依赖闭包（含 dlopen 库，
+#          如 libtss2-*），逐包 dpkg -x 解包到 /out；GOST 一并在此下载。
+#   Stage 2 runtime —— 仅安装 ca-certificates / curl / tzdata / dbus 四个运行时必需包，
 #          COPY /out 增量即得最终镜像。apt 缓存、文档、安装工具不进入最终层。
 # ==============================================================================
 
@@ -39,20 +38,17 @@ RUN set -eux; \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/cloudflare-warp.asc] https://pkg.cloudflareclient.com/ ${DEBIAN_RELEASE} main" \
       > /etc/apt/sources.list.d/cloudflare-client.list; \
     apt-get update; \
-    # ---------- 递归收集 cloudflare-warp 的全部依赖包并下载 ----------
-    # 注意：必须用递归依赖解包而非 ldd 拷贝——warp-svc 会 dlopen libtss2-esys 等
-    # TPM2 库，ldd 静态解析不到，运行时会报 cannot open shared object file。
-    DEPS="$(apt-cache depends --recurse --no-recommends --no-suggests \
-             --no-conflicts --no-breaks --no-replaces --no-enhances \
-             cloudflare-warp \
-           | grep -E '^[a-zA-Z0-9]' | sort -u | tr '\n' ' ')"; \
-    echo ">>> 依赖包列表: ${DEPS}"; \
-    mkdir -p /debs; \
-    cd /debs; \
-    apt-get download ${DEPS}; \
+    # ---------- 用 apt 精确解析最小依赖闭包并仅下载不安装 ----------
+    # 注意：不能用 apt-cache depends --recurse——其 --no-recommends/--no-suggests
+    # 参数对递归子依赖不生效，会把 recommends 一并拉进来，闭包膨胀到 GB 级。
+    # apt-get install --download-only 才是 apt 真实会安装的最小闭包。
+    # （docker-clean 会在 apt 事务后清空 /var/cache/apt/archives，先移除以保留 .deb）
+    rm -f /etc/apt/apt.conf.d/docker-clean; \
+    apt-get install --download-only --no-install-recommends -y cloudflare-warp; \
+    echo ">>> 依赖闭包大小: $(du -sh /var/cache/apt/archives | cut -f1)"; \
     # ---------- 逐包解包到 /out ----------
     mkdir -p /out; \
-    for deb in /debs/*.deb; do dpkg -x "$deb" /out; done; \
+    for deb in /var/cache/apt/archives/*.deb; do dpkg -x "$deb" /out; done; \
     # ---------- merged-usr 归一化 ----------
     # bookworm 的 /bin、/sbin、/lib、/lib64 是指向 /usr 的符号链接；若部分 deb 解包出
     # 同名真实目录，COPY 到 runtime 会与符号链接冲突（cannot copy to non-directory）。
@@ -64,10 +60,11 @@ RUN set -eux; \
         rm -rf "/out/$d"; \
       fi; \
     done; \
-    # 剪裁运行时用不到的内容，进一步瘦身
+    # 剪裁运行时用不到的内容，进一步瘦身（/var 由 runtime 自建，不搬运）
     rm -rf /out/lib/systemd /out/usr/lib/systemd /out/etc/systemd \
            /out/usr/share/doc /out/usr/share/man /out/usr/share/info \
-           /out/usr/share/lintian /out/usr/share/bug; \
+           /out/usr/share/lintian /out/usr/share/bug /out/usr/share/locale \
+           /out/var /out/run /out/debs; \
     # ---------- 下载 GOST（静态单文件，用于前端 auto 协议与可选认证） ----------
     case "${TARGETARCH}" in \
       amd64) GOST_ARCH=amd64 ;; \
@@ -99,7 +96,7 @@ RUN set -eux; \
     test -x /out/usr/local/bin/warp-svc; \
     test -x /out/usr/local/bin/warp-cli; \
     # ---------- 清理构建期产物（不进入任何镜像层记录也无妨，双保险） ----------
-    rm -rf /debs /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    rm -rf /var/cache/apt/archives/*.deb /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # ------------------------------------------------------------------------------
 # Stage 2: runtime —— 极简运行时
