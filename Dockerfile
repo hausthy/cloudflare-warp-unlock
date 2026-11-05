@@ -54,14 +54,26 @@ RUN set -eux; \
     mkdir -p /out/usr/local/bin; \
     mv /out-gost /out/usr/local/bin/gost; \
     chmod 0755 /out/usr/local/bin/gost; \
-    # 拷贝 warp 二进制及其全部动态库依赖（ldd 解析，兼容静态二进制的报错场景）
-    for bin in /usr/bin/warp-svc /usr/bin/warp-cli; do \
-      cp --parents "$bin" /out/; \
-      ldd "$bin" 2>/dev/null \
+    # 用 dpkg 精确定位 warp 二进制的真实安装路径（不假设 /usr/bin，兼容 sbin 等布局）
+    WARP_SVC="$(dpkg -L cloudflare-warp | grep -E '/warp-svc$' | head -n1)"; \
+    WARP_CLI="$(dpkg -L cloudflare-warp | grep -E '/warp-cli$' | head -n1)"; \
+    echo ">>> warp-svc 安装路径: ${WARP_SVC}"; \
+    echo ">>> warp-cli 安装路径: ${WARP_CLI}"; \
+    test -n "$WARP_SVC" && test -n "$WARP_CLI"; \
+    # 拷贝二进制及全部动态库依赖（ldd 解析，天然兼容静态二进制的空输出）
+    for src in "$WARP_SVC" "$WARP_CLI"; do \
+      cp --parents "$src" /out/; \
+      ldd "$src" 2>/dev/null \
         | awk '{if ($3 ~ /^\//) print $3; else if ($1 ~ /^\//) print $1}' \
         | sort -u \
         | while read -r lib; do cp --parents "$lib" /out/; done; \
     done; \
+    # PATH 兜底：在 /usr/local/bin 放符号链接，无论真实安装路径在哪都能被 exec 找到
+    ln -sf "$WARP_SVC" /out/usr/local/bin/warp-svc; \
+    ln -sf "$WARP_CLI" /out/usr/local/bin/warp-cli; \
+    # 构建期断言：二进制必须就位，否则立即失败暴露问题（而不是等容器运行时才炸）
+    test -x "/out${WARP_SVC}"; \
+    test -x "/out${WARP_CLI}"; \
     # 附带客户端的数据/配置目录（存在才拷贝，不影响运行时自动创建）
     for d in /etc/cloudflare-warp /usr/share/cloudflare-warp; do \
       [ -d "$d" ] && cp -a --parents "$d" /out/ || true; \
@@ -93,7 +105,11 @@ COPY scripts/unlock-check.sh /app/unlock-check.sh
 RUN chmod 0755 /entrypoint.sh /app/check-status.sh /app/unlock-check.sh \
     && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && echo "Asia/Shanghai" > /etc/timezone \
-    && mkdir -p /logs /var/lib/cloudflare-warp
+    && mkdir -p /logs /var/lib/cloudflare-warp \
+    # 运行时断言：warp 二进制与 GOST 必须存在且可执行
+    && test -x /usr/local/bin/warp-svc \
+    && test -x /usr/local/bin/warp-cli \
+    && test -x /usr/local/bin/gost
 
 # 注册状态持久化目录（warp-svc 数据目录；挂载宿主机 ./config 可跨容器重启保留账户）
 VOLUME ["/var/lib/cloudflare-warp"]
