@@ -23,11 +23,55 @@ ln -sfn /data/result.log /root/result.log
 
 cd /etc/wireguard
 
+# ==============================================================================
+# WARP+ License 绑定：通过 WARP_LICENSE 环境变量将账户升级为 WARP+
+# ==============================================================================
+# 已应用的 License 记录保存在持久化目录（./config/wgcf-license），
+# 环境变量与记录不一致时自动重新绑定，一致时跳过，避免每次重启都请求 API。
+LICENSE_FILE="/etc/wireguard/wgcf-license"
+
+apply_warp_license() {
+  local license="${WARP_LICENSE:-}"
+
+  # 未配置 License：跳过绑定（不会自动降级，已绑定的 plus 保持不变）
+  if [[ -z "$license" ]]; then
+    [[ -s "$LICENSE_FILE" ]] && log "账户已绑定 WARP+ License（环境变量为空，保持现状）"
+    return 0
+  fi
+
+  # 校验格式：26 位字符，8-8-8 三段
+  if [[ ! "$license" =~ ^[A-Za-z0-9]{8}-[A-Za-z0-9]{8}-[A-Za-z0-9]{8}$ ]]; then
+    log "错误：WARP_LICENSE 格式不合法（应为 26 位字符，形如 xxxxxxxx-xxxxxxxx-xxxxxxxx），跳过绑定"
+    return 0
+  fi
+
+  # License 未变更且账户文件存在：无需重复绑定
+  if [[ -s "$LICENSE_FILE" && -s /etc/wireguard/wgcf-account.toml ]] &&
+     [[ "$(cat "$LICENSE_FILE" 2>/dev/null || true)" == "$license" ]]; then
+    log "WARP+ License 未变更，跳过绑定"
+    return 0
+  fi
+
+  log "正在将 WARP+ License 绑定到当前 WARP 账户"
+  if wgcf update --license-key "$license"; then
+    printf '%s' "$license" > "$LICENSE_FILE"
+    chmod 600 "$LICENSE_FILE"
+    log "WARP+ License 绑定成功，账户已升级为 WARP+"
+  else
+    log "错误：WARP+ License 绑定失败（License 无效、绑定设备数已满或网络异常），本次以免费账户继续运行"
+    log "提示：请检查 WARP_LICENSE 后重启容器重试；如需彻底重置账户，可清空 ./config 后重新启动"
+    rm -f "$LICENSE_FILE"
+  fi
+}
+
 # 首次启动注册免费 WARP 账户；账号文件保存在宿主机 ./config
 if [[ ! -s /etc/wireguard/wgcf-account.toml ]]; then
   log "首次启动：注册 WARP 账户"
   wgcf register --accept-tos
 fi
+
+# 绑定 WARP+ License（如配置了 WARP_LICENSE；须在生成配置前执行，确保首次即生成 plus 账户配置）
+apply_warp_license
 
 # 生成 WireGuard 配置。wgcf 默认生成 wgcf-profile.conf。
 if [[ ! -s /etc/wireguard/wgcf.conf ]]; then

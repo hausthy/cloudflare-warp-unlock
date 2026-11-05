@@ -5,6 +5,22 @@ echo "===== WGCF interface ====="
 ip -brief addr show wgcf 2>/dev/null || true
 
 echo
+echo "===== WARP account ====="
+if [[ -s /etc/wireguard/wgcf-account.toml ]]; then
+  # 设备 ID 全量显示，License 仅显示首尾各 4 位避免完整泄露
+  local_dev_id="$(grep -E '^device_id' /etc/wireguard/wgcf-account.toml 2>/dev/null | cut -d'"' -f2 || true)"
+  [[ -n "$local_dev_id" ]] && echo "Device ID: $local_dev_id"
+  if [[ -s /etc/wireguard/wgcf-license ]]; then
+    lic="$(cat /etc/wireguard/wgcf-license)"
+    echo "WARP+ License: 已绑定 (${lic:0:4}****${lic: -4})"
+  else
+    echo "WARP+ License: 未绑定（免费账户）"
+  fi
+else
+  echo "未找到 wgcf-account.toml"
+fi
+
+echo
 echo "===== wireguard-go process ====="
 pgrep -fla "wireguard-go" || echo "未找到 wireguard-go 运行进程"
 

@@ -130,6 +130,7 @@ warp-unlock-docker/
 ├── README.md                    # 本说明文档
 ├── config/                      # 挂载卷：持久化 WGCF 账号凭证与配置
 │   ├── wgcf-account.toml        # WARP 账号信息
+│   ├── wgcf-license             # 已绑定的 WARP+ License 记录（启用 WARP+ 时生成）
 │   └── wgcf.conf                # 适配后的 WireGuard 配置文件
 ├── data/                        # 挂载卷：持久化 unlock 状态与脚本
 │   ├── warp_unlock.sh           # 生成的定时检测脚本
@@ -196,8 +197,41 @@ docker compose logs -f warp-unlock
 | `UNLOCK_STREAMS` | `ndc` | `n`, `d`, `c` 或其任意组合（如 `nd`, `c`, `ndc`） | 检测目标：`n` (Netflix)、`d` (Disney+)、`c` (ChatGPT) |
 | `WARP_FAMILY` | `4` | `4` 或 `6` | 流媒体检测与绑定的地址族（隧道本身仍为双栈） |
 | `WARP_AUTO_SETUP` | `1` | `1` (开启), `0` (关闭) | 首次连通后是否自动安装定时检测刷 IP 任务 |
+| `WARP_LICENSE` | 空 | 26 位 License（`xxxxxxxx-xxxxxxxx-xxxxxxxx`） | 绑定 WARP+ License，账户升级为 WARP+（流量优先级更高）；留空为免费账户 |
 | `WGCF_VERSION` | `2.2.32` | 版本号 | WGCF 客户端版本 |
 | `GOST_VERSION` | `2.11.5` | 版本号 | GOST 代理版本 |
+
+---
+
+## ➕ WARP+ License 支持
+
+如果你拥有 WARP+ 的 26 位 License（可在 1.1.1.1 App 的账户设置中查看，格式为 `xxxxxxxx-xxxxxxxx-xxxxxxxx`），只需配置环境变量即可让容器内的 WARP 账户升级为 WARP+，享受更高的流量优先级与更稳定的解锁体验：
+
+```bash
+# 编辑 .env，填入你的 License
+WARP_LICENSE=AbCdEfGh-IjKlMnOp-QrStUvWx
+
+# 启动 / 重启容器，绑定自动完成
+docker compose up -d
+```
+
+**工作原理**：
+
+* 容器启动时（`entrypoint.sh`）在注册账户之后、生成 WireGuard 配置之前，自动执行 `wgcf update --license-key` 将 License 绑定到当前账户，首次启动即生成 WARP+ 账户配置；
+* 已应用的 License 会记录在持久化目录 `./config/wgcf-license`，重启容器时若环境变量与记录一致则跳过绑定，避免重复请求 Cloudflare API；
+* **更换 License**：直接修改 `.env` 中的 `WARP_LICENSE` 并重启容器，自动重新绑定新 License；
+* **绑定失败兜底**：License 无效、绑定设备数已满（单个 License 最多 5 台设备）或网络异常时，容器会记录错误日志并以免费账户继续运行，不会中断 SOCKS5 服务；
+* **不会自动降级**：已绑定 WARP+ 后若清空 `WARP_LICENSE`，账户保持 plus 状态不变；如需彻底重置为全新免费账户，可清空 `./config` 目录后重启。
+
+验证账户是否已升级为 WARP+：
+
+```bash
+# trace 输出中 warp=plus 即表示 WARP+ 生效
+docker compose exec warp-unlock curl -4 -ksm10 --interface wgcf https://www.cloudflare.com/cdn-cgi/trace | grep warp
+
+# 或查看一键诊断报告中的账户绑定状态
+docker compose exec warp-unlock /app/check-status.sh
+```
 
 ---
 
@@ -371,7 +405,14 @@ docker compose exec warp-unlock /app/setup-unlock.sh --force
 ```
 即可实时热加载并应用你的定制修改。
 
-### Q6: 如何手动强制立刻刷新/更换 WARP 出口 IP？
+### Q6: 如何使用或更换 WARP+ License？
+编辑 `.env` 修改 `WARP_LICENSE` 后重启容器即可：
+```bash
+docker compose up -d
+```
+绑定结果看启动日志（`docker compose logs warp-unlock`），出现 `WARP+ License 绑定成功` 即升级完成。绑定失败时请检查：License 是否有效（26 位、未被停用）、该 License 下设备数是否已达上限（5 台）、网络是否可达 Cloudflare API。详见上文 [WARP+ License 支持](#-warp-license-支持) 章节。
+
+### Q7: 如何手动强制立刻刷新/更换 WARP 出口 IP？
 执行以下命令，即可在 **1 秒内强制重连 WireGuard 隧道并打印新 IP**：
 ```bash
 docker compose exec warp-unlock wg-quick up wgcf && echo -n "新 IPv4: " && curl -s --proxy socks5h://127.0.0.1:40000 https://api-ipv4.ip.sb/ip
