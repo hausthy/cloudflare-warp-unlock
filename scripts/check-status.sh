@@ -33,12 +33,28 @@ fi
 
 echo
 echo "===== Processes ====="
-pgrep -fla "warp-svc" || echo "未找到 warp-svc 运行进程"
-pgrep -fla "gost" || echo "未找到 gost 运行进程"
+# 镜像已剔除 procps（pgrep/ps），直接遍历 /proc 按 comm 匹配
+for name in warp-svc gost; do
+  pids=""
+  for d in /proc/[0-9]*; do
+    [[ "$(cat "$d/comm" 2>/dev/null)" == "$name" ]] && pids+="${d##*/} "
+  done
+  if [[ -n "$pids" ]]; then
+    echo "$name 正在运行 (PID: ${pids% })"
+  else
+    echo "未找到 $name 运行进程"
+  fi
+done
 
 echo
 echo "===== Listening ports ====="
-ss -Hln "sport = :40000" 2>/dev/null || netstat -Hln 2>/dev/null | grep 40000 || true
+# 镜像已剔除 iproute2（ss/netstat），用 bash 内建 /dev/tcp 探测端口可达性
+if (exec 3<>"/dev/tcp/127.0.0.1/40000") 2>/dev/null; then
+  exec 3>&- 3<&-
+  echo ":40000 正在监听（TCP 可连接）"
+else
+  echo ":40000 未监听（GOST 前端可能未启动）"
+fi
 
 echo
 echo "===== Unlock checks (live) ====="
