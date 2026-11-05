@@ -95,6 +95,9 @@ else
   chmod 0755 "$UNLOCK_BIN"
 fi
 
+# 自动热修复上游 unlock.sh 数组语法缺陷（防止 [: too many arguments 报错）
+sed -i 's/\[ -z "${STREAM_UNLOCK\[@\]}" \]/[ ${#STREAM_UNLOCK[@]} -eq 0 ]/g' "$UNLOCK_BIN" 2>/dev/null || true
+
 # 上游 1.22 的 -M 1 即 Alpine/BusyBox crond 每 5 分钟检测。
 # -T @@docker 设置非空机器名但不配置 Telegram，避免脚本进入交互式询问。
 # 若双栈检测都成功，上游会询问检测使用 IPv4 还是 IPv6；
