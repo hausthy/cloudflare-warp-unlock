@@ -18,6 +18,7 @@
 * 📺 **解锁巡检 + 刷 IP**：定期检测 Netflix/Disney+/ChatGPT，未通过自动轮换出口 IP。
 * 🌍 **地区验证**：`WARP_REGION` 校验出口地区，`WARP_ENDPOINT` 高级自定义入口。
 * 🐕 **看门狗保活**：隧道失联自动重连（间隔可调，默认 60 秒）。
+* 🪶 **极致瘦身**：镜像仅 **~139MB**（UPX 三件套 + 静态 curl + scratch 压平）。
 * 🐳 **每日重建**：CI 自动构建 AMD64/ARM64 双架构镜像。
 
 ---
@@ -33,6 +34,18 @@
            └──► MASQUE (QUIC/HTTP3) ──► Cloudflare 骨干网
 [看门狗] trace 探测，失联自动 warp-cli disconnect && connect
 ```
+
+---
+
+## 🪶 镜像体积与构建参数
+
+| 配置 | 体积 |
+| :--- | :--- |
+| `UPX_WARP_SVC=1`（推荐） | ~139MB |
+| 默认（不压缩 warp-svc） | ~190MB |
+
+> 若开启 UPX 压缩 warp-svc 后守护进程异常，改回 `UPX_WARP_SVC=0` 重建即可回退。
+> 排障可构建带完整 shell 的中间层镜像：`docker build --target runtime ...`
 
 ---
 

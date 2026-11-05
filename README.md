@@ -186,6 +186,35 @@ docker images | grep warp-unlock
 
 > 测试完成后清理：`docker compose down`；彻底重来（清账户）：`docker compose down && rm -rf config/*`
 
+### 镜像体积与构建参数
+
+最终镜像 **~139MB**（`UPX_WARP_SVC=1`）/ **~190MB**（默认），从初版 330MB 优化而来。
+瘦身手段：UPX 压缩三件套（gost/warp-cli/warp-svc）、静态 curl（SHA256 强校验）、
+清除 apt/perl/gconv 冗余组件、scratch 压平镜像层。
+
+| 构建参数 | 默认 | 说明 |
+| :--- | :--- | :--- |
+| `UPX_WARP_SVC` | `0` | `1` = UPX 压缩 warp-svc 守护进程（省 ~50MB）。若守护进程出现异常，改回 `0` 重建即回退 |
+| `GOST_VERSION` | `2.11.5` | GOST 版本 |
+| `CURL_STATIC_VERSION` | `8.23.0-1` | 静态 curl 版本（stunnel/static-curl，构建期 SHA256 强校验） |
+| `UPX_VERSION` | `4.2.4` | UPX 版本 |
+| `DEBIAN_RELEASE` | `bookworm` | 基础镜像发行版 |
+
+```bash
+# compose 方式：在 .env 中设置 UPX_WARP_SVC=1 后重建
+docker compose up -d --build
+
+# 或 docker build 直接指定
+docker build --build-arg UPX_WARP_SVC=1 -t warp-unlock:test .
+
+# 排障专用：构建带完整 shell 的未压平中间层镜像（scratch 终版无 apt/dpkg）
+docker build --target runtime --build-arg UPX_WARP_SVC=1 -t warp-unlock:debug .
+```
+
+> 说明：官方客户端 MASQUE 架构的体积硬成本 = debian-slim 基座（glibc）约 65MB +
+> warp-svc 自带私有库 `/usr/lib/warp` 约 42MB，这两块无法再压缩；
+> seiry/docker-warp-proxy 的 50MB 是 wgcf 静态单文件架构，不含上述组件。
+
 ---
 
 ## ⚙️ 环境变量详解 (`.env`)
