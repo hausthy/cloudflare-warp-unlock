@@ -39,8 +39,9 @@ services:
       WARP_ENDPOINT: "${WARP_ENDPOINT:-}"
       # 看门狗巡检间隔（秒），失联自动重连
       WARP_WATCHDOG_INTERVAL: "${WARP_WATCHDOG_INTERVAL:-60}"
-      # warp-svc 日志级别（error/warn/info/debug/trace），默认 warn 屏蔽 INFO/DEBUG 噪音
-      WARP_LOG_LEVEL: "${WARP_LOG_LEVEL:-warn}"
+      # warp-svc 日志级别（error/warn/info/debug/trace），默认 error 基本静默；
+      # warn 层全是容器环境噪音，info/debug 仅排障用（量大）
+      WARP_LOG_LEVEL: "${WARP_LOG_LEVEL:-error}"
       # warp-svc 日志落盘文件（./logs/warp.log）；留空 = 仅输出 docker logs
       WARP_LOG_FILE: "${WARP_LOG_FILE:-/logs/warp.log}"
 

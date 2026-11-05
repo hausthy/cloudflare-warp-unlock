@@ -19,11 +19,12 @@ PUBLIC_PORT=40000              # 对外暴露端口
 # ------------------------------------------------------------------------------
 # 日志配置：
 #   WARP_LOG_LEVEL —— warp-svc 为 Rust/tracing 程序（但实测不完全遵循 RUST_LOG）；
-#                     默认 warn：INFO 层几乎全是隧道统计与 span 关闭噪音（每小时上万行），
-#                     连接状态变化由本脚本的 log() 输出，不依赖 warp-svc 的 INFO
+#                     默认 error：warn 层全是容器环境噪音（IPC 断管/UDP 端口回退/
+#                     网络事件转储等，多为多行事件，线级过滤抓不全），白名单也只是止血；
+#                     连接状态变化由本脚本的 log() 输出，不依赖 warp-svc 的低级别日志
 #   WARP_LOG_FILE  —— 日志落盘文件（/logs 挂载到宿主机 ./logs）；留空 = 仅 stdout
 # ------------------------------------------------------------------------------
-export RUST_LOG="${WARP_LOG_LEVEL:-warn}"
+export RUST_LOG="${WARP_LOG_LEVEL:-error}"
 export NO_COLOR=1   # warp-svc 若识别则关闭 ANSI 颜色码；不识别时由 filter_by_level 剥离
 WARP_LOG_FILE="${WARP_LOG_FILE:-/logs/warp.log}"
 
@@ -175,20 +176,16 @@ filter_by_level() {
   # 必须先剥离转义序列再按级别过滤；顺带让落盘日志为纯文本、便于 grep
   # （NO_COLOR 尝试从源头关闭颜色，warp-svc 不识别时由 sed 兜底）
   sed -E $'s/\x1b\\[[0-9;]*[mK]//g' | {
-    case "${WARP_LOG_LEVEL:-warn}" in
+    case "${WARP_LOG_LEVEL:-error}" in
       debug|trace) cat ;;
-      warn|error)  grep -Ev ' (DEBUG|INFO) |quiche: .* idle timeout expired|Failed to load SMBiosData|Discarding structured log emitted without ZT registration' ;;
-      # 上一行白名单的三个容器环境已知无害项（详见 README FAQ）：
-      #   1. quiche idle timeout —— QUIC 正常的空闲关闭路径
-      #   2. SMBiosData 读取失败 —— 容器无 /sys DMI 设备信息，仅影响遥测元数据
-      #   3. 无 ZT 注册的结构化遥测被丢弃 —— 本镜像不使用 Zero Trust，设计内
+      warn|error)  grep -Ev ' (DEBUG|INFO) |Reinstalling missing WARP fwmark|IPC writer failed|Failed to bind to preferred UDP socket|actor_emergency_disconnect|NewNeighbour|Failed to load SMBiosData|Discarding structured log emitted without ZT registration|quiche: .* idle timeout expired|^(h|ip|ts|uag|colo|sliver|http|loc|tls|sni|warp|gateway|rbi|kex|visit_scheme|fl)=|^[[:space:]]*(changes|new_info|power_state|fallback_disconnect_reason|failed_disconnect_reason)[[:space:]]*=' ;;
       *)           grep -v ' DEBUG ' ;;
     esac
   }
 }
 if [[ -n "$WARP_LOG_FILE" ]]; then
   mkdir -p "$(dirname "$WARP_LOG_FILE")"
-  log "warp-svc 日志：级别 ${WARP_LOG_LEVEL:-warn}，落盘 ${WARP_LOG_FILE}"
+  log "warp-svc 日志：级别 ${WARP_LOG_LEVEL:-error}，落盘 ${WARP_LOG_FILE}"
   exec warp-svc > >(filter_by_level | tee -a "$WARP_LOG_FILE") 2>&1
 fi
 exec warp-svc > >(filter_by_level) 2>&1
