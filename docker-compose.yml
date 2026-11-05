@@ -37,6 +37,8 @@ services:
       # 期望出口地区（验证用）与自定义入口 Endpoint（高级）
       WARP_REGION: "${WARP_REGION:-}"
       WARP_ENDPOINT: "${WARP_ENDPOINT:-}"
+      # 隧道协议：MASQUE（默认）或 WireGuard（老协议栈，内存占用显著更低，小内存 VPS 可选）
+      WARP_PROTOCOL: "${WARP_PROTOCOL:-MASQUE}"
       # 看门狗巡检间隔（秒），失联自动重连
       WARP_WATCHDOG_INTERVAL: "${WARP_WATCHDOG_INTERVAL:-60}"
       # warp-svc 日志级别（error/warn/info/debug/trace），默认 error 基本静默；

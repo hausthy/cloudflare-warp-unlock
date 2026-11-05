@@ -98,6 +98,20 @@ fi
     fi
   fi
 
+  # 3.5 隧道协议（可选）：MASQUE（默认，HTTP3/QUIC，内存 ~170MB）或 WireGuard
+  #     （老协议栈，无 QUIC/quiche，实测内存显著更低，适合小内存 VPS；
+  #      但 Cloudflare 重心在 MASQUE，两协议解锁表现可能有差异）
+  #     注意须在 connect 之前设置；注册状态跨协议保留
+  WARP_PROTOCOL="${WARP_PROTOCOL:-MASQUE}"
+  if [[ "$WARP_PROTOCOL" != "MASQUE" ]]; then
+    if warp-cli --accept-tos tunnel protocol set "$WARP_PROTOCOL" 2>/dev/null; then
+      log "隧道协议已切换为 ${WARP_PROTOCOL}"
+    else
+      log "警告：warp-cli 不支持切换协议（tunnel protocol set），保持默认 MASQUE"
+      WARP_PROTOCOL="MASQUE"
+    fi
+  fi
+
   # 4. 切换 proxy 模式并设置本机端口，然后建立连接（兼容新旧 warp-cli 语法）
   warp-cli --accept-tos mode proxy || warp-cli --accept-tos set-mode proxy ||
     { log "错误：切换 proxy 模式失败"; exit 1; }
@@ -109,7 +123,7 @@ fi
   for _ in $(seq 1 60); do
     if curl -ksm5 -x "socks5h://127.0.0.1:${WARP_PROXY_PORT}" \
          https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep -Eq '^warp=(on|plus)$'; then
-      log "WARP (MASQUE) 隧道已连通"
+      log "WARP (${WARP_PROTOCOL}) 隧道已连通"
       break
     fi
     sleep 1

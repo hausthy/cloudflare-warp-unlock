@@ -231,6 +231,7 @@ docker build --target runtime -t warp-unlock:debug .
 | `WARP_AUTO_UNLOCK` | `1` | 是否开启解锁巡检 + 自动刷 IP（`0` 关闭，仅保留隧道看门狗） |
 | `WARP_REGION` | 空 | 期望出口地区（两位代码），非空时巡检校验 `loc=` 是否匹配 |
 | `WARP_ENDPOINT` | 空 | （高级）自定义入口 `IP:PORT`，钉住入口影响落地 colo |
+| `WARP_PROTOCOL` | `MASQUE` | 隧道协议：`MASQUE` / `WireGuard`；WireGuard 内存占用显著更低（小内存 VPS），见「内存优化」节 |
 | `WARP_WATCHDOG_INTERVAL` | `60` | 看门狗巡检间隔（秒），失联自动重连 |
 | `WARP_LOG_LEVEL` | `error` | warp-svc 日志级别：`error/warn/info/debug/trace`。默认 `error` 基本静默——`warn` 层全是容器环境噪音，`info` 每小时上万行；排障时临时改 `debug`/`trace`（全量不过滤），用完改回 |
 | `WARP_LOG_FILE` | `/logs/warp.log` | warp-svc 日志落盘文件（宿主机 `./logs/warp.log`），超 10MB 自动轮转保留最近 2000 行；留空 = 仅输出 docker logs |
@@ -264,6 +265,18 @@ compose 已内置资源限制（服务器实测校准）：
 # 实时核对占用与限额余量
 docker stats --no-stream warp-unlock
 ```
+
+### 内存优化：切换 WireGuard 协议（可选）
+
+MASQUE 模式下 warp-svc 稳态 ~150MB，大头是 QUIC/HTTP3 协议栈（quiche 缓冲 + tokio 多线程运行时），属官方闭源黑盒、无参数可调。**唯一有效的省内存开关是切回老协议 WireGuard**（`WARP_PROTOCOL=WireGuard`），无 QUIC 栈后内存显著下降，适合小内存 VPS：
+
+```env
+WARP_PROTOCOL=WireGuard
+```
+
+取舍：WireGuard 是 Cloudflare 逐步淡出的老协议，且两协议的出口特征/解锁表现可能有差异，追求解锁稳定性就保持默认 MASQUE。切换后需 `docker compose up -d` 重建（注册状态跨协议保留，不占新设备槽位）。启动日志会打印 `隧道协议已切换为 WireGuard`；若报 `不支持切换协议` 说明客户端版本过旧，会自动回退 MASQUE。
+
+对照参考：v1.x（wgcf + wireproxy，用户态 WireGuard）稳态仅 ~20MB——如果 170MB 无法接受且不需要官方客户端特性，master 分支方案仍是内存最优解。
 
 ### 出口协议族说明（默认双栈）
 
