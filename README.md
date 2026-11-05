@@ -249,7 +249,7 @@ docker build --target runtime -t warp-unlock:debug .
 - **连接状态看哪里**：注册/License 绑定/隧道连通/看门狗重连/解锁巡检均由 entrypoint 直接输出到 `docker logs`，不依赖 warp-svc 低级别日志，因此 `error` 默认档不丢关键信息
 - **ANSI 剥离**：warp-svc 输出自带颜色转义码（且不完全遵循 `RUST_LOG`），entrypoint 先剥离 ANSI 再按级别行过滤，落盘为纯文本
 - **内置噪音白名单**：容器环境已验证无害的告警（fwmark 重装提示、IPC broken pipe、UDP 端口回退、SMBios 读取失败、无 ZT 注册的遥测丢弃、网络事件转储等）已默认拦截；如仍有刺眼输出，用 `LOG_NOISE_KEYWORDS` 追加即可，无需改代码
-- **默认只落盘不进容器日志**：`WARP_LOG_STDOUT=0`（默认）时 warp-svc 过滤后输出仅写入 `./logs/warp.log`，`docker logs` 只保留 entrypoint 生命周期日志（注册/看门狗/巡检，每小时几行）；设 `WARP_LOG_STDOUT=1` 恢复同步输出
+- **默认双路输出**：`WARP_LOG_STDOUT=1`（默认）时过滤后日志同时落盘 `./logs/warp.log` 和容器日志（docker logs，1MB×3 轮转）；设 `WARP_LOG_STDOUT=0` 则仅落盘，docker logs 只保留 entrypoint 生命周期日志
 - **排障姿势**：`.env` 改 `WARP_LOG_LEVEL=debug` 重建看全量；检查原始字节用 `cat -v logs/warp.log`（终端渲染会吞掉转义符，别被显示骗到）
 
 ### 资源占用与限制
