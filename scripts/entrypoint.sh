@@ -177,8 +177,11 @@ filter_by_level() {
   sed -E $'s/\x1b\\[[0-9;]*[mK]//g' | {
     case "${WARP_LOG_LEVEL:-warn}" in
       debug|trace) cat ;;
-      warn|error)  grep -Ev ' (DEBUG|INFO) ' \
-                   | grep -Ev 'quiche: .* idle timeout expired' ;;  # idle 关闭是 QUIC 正常路径
+      warn|error)  grep -Ev ' (DEBUG|INFO) |quiche: .* idle timeout expired|Failed to load SMBiosData|Discarding structured log emitted without ZT registration' ;;
+      # 上一行白名单的三个容器环境已知无害项（详见 README FAQ）：
+      #   1. quiche idle timeout —— QUIC 正常的空闲关闭路径
+      #   2. SMBiosData 读取失败 —— 容器无 /sys DMI 设备信息，仅影响遥测元数据
+      #   3. 无 ZT 注册的结构化遥测被丢弃 —— 本镜像不使用 Zero Trust，设计内
       *)           grep -v ' DEBUG ' ;;
     esac
   }
