@@ -33,8 +33,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN set -eux; \
     apt-get update; \
-    # 注意：bookworm 源里没有 upx-ucl 包，改用 UPX 官方 GitHub 静态二进制
-    apt-get install -y --no-install-recommends ca-certificates curl binutils; \
+    # 注意：bookworm 源里没有 upx-ucl 包，改用 UPX 官方 GitHub 静态二进制；
+    # 其发行包为 .tar.xz，builder 需要临时安装 xz-utils 解压（不进最终镜像）
+    apt-get install -y --no-install-recommends ca-certificates curl binutils xz-utils; \
     # 接入 Cloudflare 官方 APT 源（bookworm 的 apt 支持直接引用 armored 密钥，无需 gnupg）
     mkdir -p /etc/apt/keyrings; \
     curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg \
