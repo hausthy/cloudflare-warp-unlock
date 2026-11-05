@@ -1,13 +1,17 @@
 name: Build WARP Unlock Image
 
 on:
-  # 手动触发构建，防止 Fork 仓库滥用 Actions 配额
+  # 手动触发构建（与主分支一致，防止 Fork 仓库滥用 Actions 配额）
   workflow_dispatch:
     inputs:
       image_tag:
-        description: '自定义镜像 Tag 后缀 (留空则默认为当天日期如 20261104)'
+        description: '自定义镜像 Tag 后缀 (留空则默认为当天日期如 20261105)'
         required: false
         default: ''
+      upx_warp_svc:
+        description: 'UPX 压缩 warp-svc (1=开启 ~139MB，0=关闭 ~190MB)'
+        required: false
+        default: '1'
 
 jobs:
   build-and-push:
@@ -16,9 +20,9 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 1. 动态生成镜像 Tag（解决 steps.tag_date.outputs.value 缺失问题）
-      - name: Generate Tag Date
-        id: tag_date
+      # 1. 动态生成镜像 Tag（输入为空时默认当天日期）
+      - name: Generate Tag
+        id: tag
         run: |
           if [ -n "${{ github.event.inputs.image_tag }}" ]; then
             echo "value=${{ github.event.inputs.image_tag }}" >> $GITHUB_OUTPUT
@@ -42,17 +46,21 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # 5. 构建并推送到 DockerHub
+      #    v2.0 为 Debian + 官方客户端 MASQUE 架构，Tag 前缀 masque-；
+      #    UPX 默认压缩 warp-svc（~139MB），异常时可手动触发选 0 回退
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          # 仅编译云服务器通用架构，杜绝不支持的 armv7/ppc64le/s390x
+          # 仅编译云服务器通用架构
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/warp-unlock:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/warp-unlock:alpine-${{ steps.tag_date.outputs.value }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/warp-unlock:masque-${{ steps.tag.outputs.value }}
+          build-args: |
+            UPX_WARP_SVC=${{ inputs.upx_warp_svc || '1' }}
           # 开启 GitHub Actions 缓存加速
           cache-from: type=gha
           cache-to: type=gha,mode=max
