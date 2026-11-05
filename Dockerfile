@@ -132,7 +132,8 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends ca-certificates curl tzdata dbus; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/* \
-           /usr/share/doc/* /usr/share/man/* /usr/share/info/* /usr/share/locale/*
+           /usr/share/doc/* /usr/share/man/* /usr/share/info/* /usr/share/locale/* \
+           /var/lib/dpkg/info/* /var/cache/*;
 
 # 从 builder 层拷贝运行时增量：warp 二进制 + 全部依赖库 + GOST
 COPY --from=builder /out/ /
