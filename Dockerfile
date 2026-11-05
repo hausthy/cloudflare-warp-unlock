@@ -191,7 +191,11 @@ RUN set -eux; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/* \
            /usr/share/doc/* /usr/share/man/* /usr/share/info/* /usr/share/locale/* \
-           /var/lib/dpkg/info/* /var/cache/*;
+           /var/lib/dpkg/info/* /var/cache/* \
+    # 运行期不再安装任何软件包，apt/dpkg 工具链与元数据整体移除（~15MB）。
+    # 副作用：基于此镜像的衍生构建无法再 apt install，属预期行为
+    && rm -rf /usr/bin/apt* /usr/bin/dpkg* /usr/lib/apt /usr/lib/dpkg \
+              /var/lib/dpkg /var/lib/apt /etc/apt
 
 # 从 builder 层拷贝运行时增量：warp 二进制 + 全部依赖库 + GOST
 COPY --from=builder /out/ /
