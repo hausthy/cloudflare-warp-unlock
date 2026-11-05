@@ -9,17 +9,17 @@
 #   * GOST 作为前端：同端口 auto 协议（SOCKS5 / SOCKS4 / HTTP CONNECT）+ 可选认证。
 #
 # 分层构建（Multi-stage）：
-#   Stage 1 builder —— 接入 Cloudflare APT 源并完整安装 cloudflare-warp，随后用 ldd
-#          解析 warp-svc / warp-cli 的全部动态库依赖，连同二进制与数据文件组装成
-#          /out 根文件系统增量；GOST 一并在此下载。gnupg/curl 等安装工具全部留在本层。
+#   Stage 1 builder —— 递归解析 cloudflare-warp 的全部 DEB 依赖包，逐个下载并用
+#          dpkg -x 解包到 /out（覆盖 ldd 静态解析不到的 dlopen 库，如 libtss2-*）；
+#          GOST 一并在此下载。gnupg/socat 等安装工具一概不需要。
 #   Stage 2 runtime —— 仅安装 ca-certificates / curl / tzdata 三个运行时必需包，
-#          COPY /out 增量即得最终镜像。apt 缓存、文档、gnupg、socat 一概不进入最终层。
+#          COPY /out 增量即得最终镜像。apt 缓存、文档、安装工具不进入最终层。
 # ==============================================================================
 
 ARG DEBIAN_RELEASE=bookworm
 
 # ------------------------------------------------------------------------------
-# Stage 1: builder —— 安装官方客户端并组装运行时增量
+# Stage 1: builder —— 收集官方客户端全部 DEB 依赖并组装运行时增量
 # ------------------------------------------------------------------------------
 FROM docker.io/debian:${DEBIAN_RELEASE}-slim AS builder
 
@@ -31,15 +31,44 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends gnupg ca-certificates curl; \
-    # 接入 Cloudflare 官方 APT 源
+    apt-get install -y --no-install-recommends ca-certificates curl; \
+    # 接入 Cloudflare 官方 APT 源（bookworm 的 apt 支持直接引用 armored 密钥，无需 gnupg）
+    mkdir -p /etc/apt/keyrings; \
     curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg \
-      | gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg; \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ ${DEBIAN_RELEASE} main" \
+      -o /etc/apt/keyrings/cloudflare-warp.asc; \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/cloudflare-warp.asc] https://pkg.cloudflareclient.com/ ${DEBIAN_RELEASE} main" \
       > /etc/apt/sources.list.d/cloudflare-client.list; \
     apt-get update; \
-    apt-get install -y --no-install-recommends cloudflare-warp; \
-    # 下载 GOST（静态单文件，用于前端 auto 协议与可选认证）
+    # ---------- 递归收集 cloudflare-warp 的全部依赖包并下载 ----------
+    # 注意：必须用递归依赖解包而非 ldd 拷贝——warp-svc 会 dlopen libtss2-esys 等
+    # TPM2 库，ldd 静态解析不到，运行时会报 cannot open shared object file。
+    DEPS="$(apt-cache depends --recurse --no-recommends --no-suggests \
+             --no-conflicts --no-breaks --no-replaces --no-enhances \
+             cloudflare-warp \
+           | grep -E '^[a-zA-Z0-9]' | sort -u | tr '\n' ' ')"; \
+    echo ">>> 依赖包列表: ${DEPS}"; \
+    mkdir -p /debs; \
+    cd /debs; \
+    apt-get download ${DEPS}; \
+    # ---------- 逐包解包到 /out ----------
+    mkdir -p /out; \
+    for deb in /debs/*.deb; do dpkg -x "$deb" /out; done; \
+    # ---------- merged-usr 归一化 ----------
+    # bookworm 的 /bin、/sbin、/lib、/lib64 是指向 /usr 的符号链接；若部分 deb 解包出
+    # 同名真实目录，COPY 到 runtime 会与符号链接冲突（cannot copy to non-directory）。
+    # 统一并入 /usr 对应目录，保证 /out 只包含 usr/、etc/ 等真实目录。
+    for d in bin sbin lib lib64; do \
+      if [ -d "/out/$d" ]; then \
+        mkdir -p "/out/usr/$d"; \
+        cp -a "/out/$d/." "/out/usr/$d/"; \
+        rm -rf "/out/$d"; \
+      fi; \
+    done; \
+    # 剪裁运行时用不到的内容，进一步瘦身
+    rm -rf /out/lib/systemd /out/usr/lib/systemd /out/etc/systemd \
+           /out/usr/share/doc /out/usr/share/man /out/usr/share/info \
+           /out/usr/share/lintian /out/usr/share/bug; \
+    # ---------- 下载 GOST（静态单文件，用于前端 auto 协议与可选认证） ----------
     case "${TARGETARCH}" in \
       amd64) GOST_ARCH=amd64 ;; \
       arm64) GOST_ARCH=armv8 ;; \
@@ -48,48 +77,23 @@ RUN set -eux; \
     curl -fsSL --retry 3 \
       "https://github.com/ginuerzh/gost/releases/download/v${GOST_VERSION}/gost-linux-${GOST_ARCH}-${GOST_VERSION}.gz" \
       -o /tmp/gost.gz; \
-    gzip -dc /tmp/gost.gz > /out-gost; \
-    rm -f /tmp/gost.gz; \
-    # ---------- 组装 /out 运行时增量 ----------
     mkdir -p /out/usr/local/bin; \
-    mv /out-gost /out/usr/local/bin/gost; \
+    gzip -dc /tmp/gost.gz > /out/usr/local/bin/gost; \
     chmod 0755 /out/usr/local/bin/gost; \
-    # 归一化拷贝函数：bookworm 为 merged-usr 布局，/bin、/sbin、/lib、/lib64 均为指向
-    # /usr 的符号链接。若按绝对路径在 /out 下生成同名真实目录，COPY 到 runtime 时会与
-    # 符号链接冲突（cannot copy to non-directory）。因此统一归一化到 /usr/ 真实目录下。
-    copy_norm() { \
-      src="$1"; \
-      rel="${src#/}"; \
-      case "$rel" in \
-        bin/*|sbin/*|lib/*|lib64/*) rel="usr/$rel" ;; \
-      esac; \
-      mkdir -p "/out/$(dirname "$rel")"; \
-      cp -a "$src" "/out/$rel"; \
-    }; \
-    # 用 dpkg 精确定位 warp 二进制的真实安装路径（不假设 /usr/bin，兼容 sbin 等布局）
-    WARP_SVC="$(dpkg -L cloudflare-warp | grep -E '/warp-svc$' | head -n1)"; \
-    WARP_CLI="$(dpkg -L cloudflare-warp | grep -E '/warp-cli$' | head -n1)"; \
-    echo ">>> warp-svc 安装路径: ${WARP_SVC}"; \
-    echo ">>> warp-cli 安装路径: ${WARP_CLI}"; \
+    rm -f /tmp/gost.gz; \
+    # ---------- 定位 warp 二进制并设置 PATH 兜底符号链接 ----------
+    WARP_SVC="$(find /out -name warp-svc -type f | head -n1 | sed "s|^/out||")"; \
+    WARP_CLI="$(find /out -name warp-cli -type f | head -n1 | sed "s|^/out||")"; \
+    echo ">>> warp-svc 解包路径: ${WARP_SVC}"; \
+    echo ">>> warp-cli 解包路径: ${WARP_CLI}"; \
     test -n "$WARP_SVC" && test -n "$WARP_CLI"; \
-    # 拷贝二进制及全部动态库依赖（ldd 解析，天然兼容静态二进制的空输出）
-    for src in "$WARP_SVC" "$WARP_CLI"; do \
-      copy_norm "$src"; \
-      ldd "$src" 2>/dev/null \
-        | awk '{if ($3 ~ /^\//) print $3; else if ($1 ~ /^\//) print $1}' \
-        | sort -u \
-        | while read -r lib; do copy_norm "$lib"; done; \
-    done; \
-    # PATH 兜底：在 /usr/local/bin 放符号链接，无论真实安装路径在哪都能被 exec 找到
     ln -sf "$WARP_SVC" /out/usr/local/bin/warp-svc; \
     ln -sf "$WARP_CLI" /out/usr/local/bin/warp-cli; \
-    # 构建期断言：符号链接指向的二进制必须存在且可执行，否则立即失败暴露问题
+    # 构建期断言：二进制必须就位且可执行，否则立即失败暴露问题
     test -x /out/usr/local/bin/warp-svc; \
     test -x /out/usr/local/bin/warp-cli; \
-    # 附带客户端的数据/配置目录（/etc 与 /usr/share 为真实目录，无符号链接冲突）
-    for d in /etc/cloudflare-warp /usr/share/cloudflare-warp; do \
-      [ -d "$d" ] && cp -a --parents "$d" /out/ || true; \
-    done
+    # ---------- 清理构建期产物（不进入任何镜像层记录也无妨，双保险） ----------
+    rm -rf /debs /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # ------------------------------------------------------------------------------
 # Stage 2: runtime —— 极简运行时
@@ -107,7 +111,7 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/* \
            /usr/share/doc/* /usr/share/man/* /usr/share/info/* /usr/share/locale/*
 
-# 从 builder 层拷贝运行时增量：warp 二进制 + 动态库 + 数据目录 + GOST
+# 从 builder 层拷贝运行时增量：warp 二进制 + 全部依赖库 + GOST
 COPY --from=builder /out/ /
 
 COPY scripts/entrypoint.sh /entrypoint.sh
