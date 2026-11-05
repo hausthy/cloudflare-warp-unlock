@@ -23,6 +23,7 @@ PUBLIC_PORT=40000              # 对外暴露端口
 #   WARP_LOG_FILE  —— 日志落盘文件（/logs 挂载到宿主机 ./logs）；留空 = 仅 stdout
 # ------------------------------------------------------------------------------
 export RUST_LOG="${WARP_LOG_LEVEL:-info}"
+export NO_COLOR=1   # warp-svc 若识别则关闭 ANSI 颜色码；不识别时由 filter_by_level 剥离
 WARP_LOG_FILE="${WARP_LOG_FILE:-/logs/warp.log}"
 
 mkdir -p /logs /var/lib/cloudflare-warp
@@ -169,11 +170,16 @@ fi
 #   - WARP_LOG_FILE 非空时经 tee 同步落盘（stdout 仍进 docker logs）
 # ------------------------------------------------------------------------------
 filter_by_level() {
-  case "${WARP_LOG_LEVEL:-info}" in
-    debug|trace) cat ;;
-    warn|error)  grep -Ev ' (DEBUG|INFO) ' ;;
-    *)           grep -v ' DEBUG ' ;;
-  esac
+  # warp-svc 输出带 ANSI 颜色码（如 "<ESC>[34mDEBUG<ESC>[0m"），裸 ' DEBUG ' 匹配不上，
+  # 必须先剥离转义序列再按级别过滤；顺带让落盘日志为纯文本、便于 grep
+  # （NO_COLOR 尝试从源头关闭颜色，warp-svc 不识别时由 sed 兜底）
+  sed -E $'s/\x1b\\[[0-9;]*[mK]//g' | {
+    case "${WARP_LOG_LEVEL:-info}" in
+      debug|trace) cat ;;
+      warn|error)  grep -Ev ' (DEBUG|INFO) ' ;;
+      *)           grep -v ' DEBUG ' ;;
+    esac
+  }
 }
 if [[ -n "$WARP_LOG_FILE" ]]; then
   mkdir -p "$(dirname "$WARP_LOG_FILE")"
