@@ -54,19 +54,33 @@ fi
   LICENSE="${LICENSE#[\"\']}"
   LICENSE="${LICENSE%[\"\']}"
   if [[ -n "$LICENSE" ]]; then
-    if warp-cli --accept-tos registration license "$LICENSE"; then
+    if warp-cli --accept-tos registration license "$LICENSE" ||
+       warp-cli --accept-tos license "$LICENSE"; then
       log "WARP+ License 绑定成功，账户已升级为 WARP+"
     else
       log "错误：WARP+ License 绑定失败（License 无效、设备数已满或网络异常），以免费账户继续运行"
     fi
   fi
 
-  # 3. 切换 proxy 模式并设置本机端口，然后建立连接
-  warp-cli --accept-tos mode proxy || { log "错误：切换 proxy 模式失败"; exit 1; }
-  warp-cli --accept-tos proxy port "$WARP_PROXY_PORT"
+  # 3. 自定义入口 Endpoint（高级）：钉住特定 Cloudflare 入口 IP 可影响落地 colo，
+  #    配合 WARP_REGION 验证实现"地区定向"。warp-cli 新旧版本命令不同，依次尝试。
+  if [[ -n "${WARP_ENDPOINT:-}" ]]; then
+    if warp-cli --accept-tos tunnel endpoint set "$WARP_ENDPOINT" 2>/dev/null ||
+       warp-cli --accept-tos set-custom-endpoint "$WARP_ENDPOINT" 2>/dev/null; then
+      log "已设置自定义入口 Endpoint: ${WARP_ENDPOINT}"
+    else
+      log "错误：设置自定义 Endpoint 失败（当前 warp-cli 不支持或格式有误，格式应为 IP:PORT），使用默认入口"
+    fi
+  fi
+
+  # 4. 切换 proxy 模式并设置本机端口，然后建立连接（兼容新旧 warp-cli 语法）
+  warp-cli --accept-tos mode proxy || warp-cli --accept-tos set-mode proxy ||
+    { log "错误：切换 proxy 模式失败"; exit 1; }
+  warp-cli --accept-tos proxy port "$WARP_PROXY_PORT" ||
+    warp-cli --accept-tos set-proxy-port "$WARP_PROXY_PORT" || true
   warp-cli --accept-tos connect
 
-  # 4. 等待隧道连通（最多 60 秒），不阻塞代理启动
+  # 5. 等待隧道连通（最多 60 秒），不阻塞代理启动
   for _ in $(seq 1 60); do
     if curl -ksm5 -x "socks5h://127.0.0.1:${WARP_PROXY_PORT}" \
          https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep -Eq '^warp=(on|plus)$'; then
@@ -76,15 +90,12 @@ fi
     sleep 1
   done
 
-  # 5. GOST 前端：对外 40000，链式转发到 warp-svc 本机代理 40001
+  # 6. GOST 前端：对外 40000，链式转发到 warp-svc 本机代理 40001
   log "启动 GOST 前端 :${PUBLIC_PORT} (SOCKS5 + HTTP CONNECT 双协议)"
   gost -L "auto://${GOST_USER_PASS}:${PUBLIC_PORT}" \
        -F "socks5://127.0.0.1:${WARP_PROXY_PORT}" >> /logs/gost.log 2>&1 &
 
-  # 6. 看门狗：定期验证隧道连通性，失联自动重连（替代 v1.x 的 unlock.sh 定时巡检）
-  #    说明：MASQUE 模式无法手动指定出口地区，故不再提供解锁地区定向与刷 IP；
-  #    看门狗仅保证隧道始终在线。刷新出口 IP = 重启容器，或执行
-  #    `warp-cli disconnect && warp-cli connect`。
+  # 7. 看门狗：定期验证隧道连通性，失联自动重连
   while true; do
     sleep "${WARP_WATCHDOG_INTERVAL:-60}"
     if ! curl -ksm8 -x "socks5h://127.0.0.1:${WARP_PROXY_PORT}" \
@@ -95,6 +106,30 @@ fi
     fi
   done
 ) &
+
+# ------------------------------------------------------------------------------
+# 解锁巡检循环：定期检测流媒体解锁与出口地区，未通过自动重连换 IP（刷 IP）
+# 环境变量：UNLOCK_STREAMS (ndc) / WARP_REGION (期望地区) / UNLOCK_INTERVAL (秒)
+# ------------------------------------------------------------------------------
+if [[ "${WARP_AUTO_UNLOCK:-1}" == "1" ]]; then
+  (
+    interval="${UNLOCK_INTERVAL:-300}"
+    sleep "${UNLOCK_INITIAL_DELAY:-60}"   # 等隧道与代理稳定后先做首轮检测
+    while true; do
+      if ! /app/unlock-check.sh; then
+        log "解锁巡检：检测未通过，开始轮换出口 IP（最多 3 次）"
+        for _ in 1 2 3; do
+          warp-cli --accept-tos disconnect >/dev/null 2>&1 || true
+          warp-cli --accept-tos connect >/dev/null 2>&1 || true
+          sleep 10
+          /app/unlock-check.sh && { log "解锁巡检：重连后检测通过"; break; }
+          log "解锁巡检：第 ${_} 次重连后仍未通过"
+        done
+      fi
+      sleep "$interval"
+    done
+  ) &
+fi
 
 # warp-svc 前台运行，作为容器主进程
 exec warp-svc

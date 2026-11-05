@@ -27,6 +27,10 @@
   `WARP_LICENSE` 环境变量自动执行 `warp-cli registration license`，绑定结果实时反映在启动日志与诊断报告中。
 * 🐕 **隧道看门狗**：
   定期（默认 60 秒，可调）探测 `warp=on/plus`，隧道失联自动 disconnect/connect 重连，长期无人值守稳定在线。
+* 📺 **流媒体解锁巡检 + 自动刷 IP**：
+  内置 `unlock-check.sh` 定期检测 Netflix / Disney+ / ChatGPT（`UNLOCK_STREAMS`），未通过自动重连轮换出口 IP（单轮最多 3 次），检测历史写入 `./logs/unlock.log`。
+* 🌍 **出口地区验证 + 自定义入口**：
+  `WARP_REGION` 设定期望出口地区（校验 trace `loc=`，不匹配触发轮换）；高级用户可用 `WARP_ENDPOINT` 钉住特定 Cloudflare 入口 IP 影响落地 colo。
 * 🐳 **预构建镜像 + 每日自动重建**：
   GitHub Actions 自动构建 AMD64/ARM64 双架构镜像并推送 Docker Hub 与 GHCR；每日定时重建，持续跟进基础镜像与官方客户端的安全更新。
 
@@ -78,13 +82,13 @@ flowchart TD
 | 协议 | WireGuard UDP | MASQUE（QUIC/HTTP3） |
 | 代理协议 | SOCKS5（GOST） | SOCKS5 + **HTTP CONNECT**（同端口） |
 | WARP+ License | `wgcf update --license-key` | `warp-cli registration license` |
-| 出口地区定向 (`WARP_REGION`) | ✅ | ❌ 不支持（官方客户端不提供） |
-| 解锁检测/自动刷 IP (`unlock.sh`) | ✅ 每 5 分钟 | ❌ 不支持，改为看门狗保活 |
+| 出口地区定向 | ✅ WGCF 配置直接指定 | ⚠️ `WARP_REGION` 验证 + `WARP_ENDPOINT` 钉入口（高级） |
+| 解锁检测/自动刷 IP | ✅ 每 5 分钟 | ✅ `UNLOCK_STREAMS` 巡检 + 失败轮换（可配间隔） |
 | 出口 IP 轮换 | 重连隧道即换 IP | 重启容器 / `warp-cli disconnect && connect` |
 | 适用环境 | 需 TUN 的常规 VPS | 任何 Docker 环境（含受限容器平台） |
 
-> 如果依赖「地区定向 + 流媒体自动刷 IP」能力，请继续使用 v1.x（`master` 分支）；
-> 如果更看重零特权部署、官方维护与协议兼容性，v2.0 是更优解。
+> 如果依赖「WGCF 精确地区切换」能力，请继续使用 v1.x（`master` 分支）；
+> 如果更看重零特权部署、官方维护与协议兼容性，v2.0 是更优解（解锁检测与刷 IP 已回归）。
 
 ---
 
@@ -92,16 +96,18 @@ flowchart TD
 
 ```text
 warp-unlock-docker/
-├── Dockerfile                   # Debian + 官方 cloudflare-warp + GOST 构建
+├── Dockerfile                   # Debian + 官方 cloudflare-warp + GOST 构建（含瘦身清理）
 ├── docker-compose.yml           # 零特权服务编排
 ├── .env.example                 # 环境变量配置模板
 ├── .github/workflows/
 │   └── docker-image.yml         # 预构建镜像 CI（多架构 + 每日重建）
 ├── config/                      # 挂载卷：warp-svc 注册状态持久化
-├── logs/                        # 挂载卷：GOST 运行日志
-│   └── gost.log
+├── logs/                        # 挂载卷：GOST 日志 + 解锁检测历史
+│   ├── gost.log
+│   └── unlock.log
 ├── scripts/
-│   ├── entrypoint.sh            # 注册 → License → proxy 模式 → GOST → 看门狗
+│   ├── entrypoint.sh            # 注册 → License → Endpoint → proxy 模式 → GOST → 巡检循环
+│   ├── unlock-check.sh          # 流媒体解锁检测 + 出口地区验证
 │   └── check-status.sh          # 容器一键状态诊断脚本
 └── tools/
     └── warp-ping.sh             # 宿主机链路耗时与 IPv4/IPv6 握手分析工具
@@ -154,6 +160,11 @@ docker compose logs -f warp-unlock
 | :--- | :--- | :--- |
 | `WARP_LICENSE` | 空 | 26 位 WARP+ License（`xxxxxxxx-xxxxxxxx-xxxxxxxx`），留空为免费账户 |
 | `PROXY_USER` / `PROXY_PASS` | 空 | 代理认证（两者同时填写才生效），HTTP Basic + SOCKS5 user/pass |
+| `UNLOCK_STREAMS` | `ndc` | 解锁检测项：`n` (Netflix)、`d` (Disney+)、`c` (ChatGPT)，留空则不检测 |
+| `UNLOCK_INTERVAL` | `300` | 解锁巡检间隔（秒） |
+| `WARP_AUTO_UNLOCK` | `1` | 是否开启解锁巡检 + 自动刷 IP（`0` 关闭，仅保留隧道看门狗） |
+| `WARP_REGION` | 空 | 期望出口地区（两位代码），非空时巡检校验 `loc=` 是否匹配 |
+| `WARP_ENDPOINT` | 空 | （高级）自定义入口 `IP:PORT`，钉住入口影响落地 colo |
 | `WARP_WATCHDOG_INTERVAL` | `60` | 看门狗巡检间隔（秒），失联自动重连 |
 | `GOST_VERSION` | `2.11.5` | GOST 构建版本 |
 
@@ -201,8 +212,12 @@ docker compose exec warp-unlock warp-cli --accept-tos connect
 docker compose restart warp-unlock
 ```
 
-### Q2: 为什么没有解锁地区定向和自动刷 IP 了？
-官方客户端 proxy 模式（MASQUE）不提供出口地区选择能力，`unlock.sh` 的 WireGuard 隧道重连刷 IP 逻辑不适用。这是官方架构的取舍：换来的是零特权部署与官方长期维护。如需该能力请使用 v1.x。
+### Q2: 解锁地区定向和刷 IP 是怎么实现的？和 v1.x 有什么不同？
+v2.0 通过**巡检 + 轮换**实现：
+- `unlock-check.sh` 每 `UNLOCK_INTERVAL` 秒检测 Netflix/Disney+/ChatGPT 与出口地区（`WARP_REGION`）；
+- 未通过则 `warp-cli disconnect && connect` 轮换出口 IP（单轮最多 3 次），通过即保持。
+
+与 v1.x 的差异：MASQUE 模式下官方客户端不提供地区强制切换，`WARP_REGION` 是**验证目标**——轮换通常只能改变同区域内的出口 IP 与解锁状态，若你的 VPS 所在 colo 始终无法满足期望地区，可尝试 `WARP_ENDPOINT` 钉住其他地区的 Cloudflare 入口 IP（高级玩法，需自行寻找可用入口），或回退 v1.x（WGCF 可直接改配置选地区）。
 
 ### Q3: 如何使用 WARP+ License？
 编辑 `.env` 填入 `WARP_LICENSE` 后 `docker compose up -d`，日志出现 `WARP+ License 绑定成功` 即升级完成；失败常见原因：License 无效、设备数已满（5 台）、网络不可达。

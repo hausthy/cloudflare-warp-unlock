@@ -30,8 +30,16 @@ RUN set -eux; \
       > /etc/apt/sources.list.d/cloudflare-client.list; \
     apt-get update; \
     apt-get install -y --no-install-recommends cloudflare-warp; \
+    # ---------- 镜像瘦身 ----------
+    # 1. gnupg 仅构建期导入密钥用，运行时不需要，连依赖一并移除
+    apt-get purge -y --auto-remove gnupg; \
+    apt-get autoremove -y; \
     apt-get clean; \
-    rm -rf /var/lib/apt/lists/* /tmp/*
+    # 2. 剥离文档、man 页、翻译与日志缓存（不影响运行）
+    rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/info/* /usr/share/locale/* \
+           /usr/share/oem /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/*; \
+    # 3. 清理 warp 包自带的系统服务和 desktop 条目（容器内无用）
+    rm -rf /etc/systemd/system /usr/lib/systemd /lib/systemd /usr/share/applications 2>/dev/null || true
 
 # 下载 GOST（静态单文件，用于前端 auto 协议与可选认证）
 RUN set -eux; \
@@ -49,8 +57,9 @@ RUN set -eux; \
 
 COPY scripts/entrypoint.sh /entrypoint.sh
 COPY scripts/check-status.sh /app/check-status.sh
+COPY scripts/unlock-check.sh /app/unlock-check.sh
 
-RUN chmod 0755 /entrypoint.sh /app/check-status.sh \
+RUN chmod 0755 /entrypoint.sh /app/check-status.sh /app/unlock-check.sh \
     && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && echo "Asia/Shanghai" > /etc/timezone
 

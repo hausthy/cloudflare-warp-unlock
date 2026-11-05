@@ -39,3 +39,17 @@ pgrep -fla "gost" || echo "未找到 gost 运行进程"
 echo
 echo "===== Listening ports ====="
 ss -Hln "sport = :40000" 2>/dev/null || netstat -Hln 2>/dev/null | grep 40000 || true
+
+echo
+echo "===== Unlock checks (live) ====="
+if [[ -x /app/unlock-check.sh ]]; then
+  if UNLOCK_LOG=/dev/null /app/unlock-check.sh; then
+    echo ">>> 全部检测通过"
+  else
+    echo ">>> 存在未通过项（巡检循环会自动轮换出口 IP）"
+  fi
+fi
+
+echo
+echo "===== Recent unlock log (last 5) ====="
+tail -n 5 /logs/unlock.log 2>/dev/null || echo "暂无解锁检测记录"

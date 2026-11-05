@@ -15,6 +15,8 @@
 * 🔀 **双协议同端口**：`:40000` 同时接受 `socks5h://` / `socks5://` / `http://`。
 * 🔒 **可选认证**：`PROXY_USER/PROXY_PASS` 启用 HTTP Basic + SOCKS5 user/pass。
 * ➕ **WARP+ 一键升级**：`WARP_LICENSE` 环境变量自动绑定。
+* 📺 **解锁巡检 + 刷 IP**：定期检测 Netflix/Disney+/ChatGPT，未通过自动轮换出口 IP。
+* 🌍 **地区验证**：`WARP_REGION` 校验出口地区，`WARP_ENDPOINT` 高级自定义入口。
 * 🐕 **看门狗保活**：隧道失联自动重连（间隔可调，默认 60 秒）。
 * 🐳 **每日重建**：CI 自动构建 AMD64/ARM64 双架构镜像。
 
@@ -87,6 +89,10 @@ docker compose up -d
 | `TZ` | `Asia/Shanghai` | 容器时区 |
 | `WARP_LICENSE` | 空 | 26 位 WARP+ License（`xxxxxxxx-xxxxxxxx-xxxxxxxx`），留空为免费账户 |
 | `PROXY_USER` / `PROXY_PASS` | 空 | 代理认证，两者同时填写才生效 |
+| `UNLOCK_STREAMS` | `ndc` | 解锁检测项：n(Netflix) / d(Disney+) / c(ChatGPT)，留空不检测 |
+| `UNLOCK_INTERVAL` | `300` | 解锁巡检间隔（秒），未通过自动轮换出口 IP |
+| `WARP_REGION` | 空 | 期望出口地区（两位代码），非空时校验 trace loc= |
+| `WARP_ENDPOINT` | 空 | （高级）自定义入口 IP:PORT |
 | `WARP_WATCHDOG_INTERVAL` | `60` | 看门狗巡检间隔（秒） |
 
 ---

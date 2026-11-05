@@ -12,3 +12,6 @@ logs/*
 !logs/.keep
 
 .env
+
+# WorkBuddy 工作区数据
+.workbuddy/

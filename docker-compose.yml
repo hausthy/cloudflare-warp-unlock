@@ -23,6 +23,13 @@ services:
       # 代理认证（可选）：两者同时填写才生效（HTTP Basic + SOCKS5 user/pass）
       PROXY_USER: "${PROXY_USER:-}"
       PROXY_PASS: "${PROXY_PASS:-}"
+      # 解锁巡检：检测项 ndc / 间隔秒数 / 总开关
+      UNLOCK_STREAMS: "${UNLOCK_STREAMS:-ndc}"
+      UNLOCK_INTERVAL: "${UNLOCK_INTERVAL:-300}"
+      WARP_AUTO_UNLOCK: "${WARP_AUTO_UNLOCK:-1}"
+      # 期望出口地区（验证用）与自定义入口 Endpoint（高级）
+      WARP_REGION: "${WARP_REGION:-}"
+      WARP_ENDPOINT: "${WARP_ENDPOINT:-}"
       # 看门狗巡检间隔（秒），失联自动重连
       WARP_WATCHDOG_INTERVAL: "${WARP_WATCHDOG_INTERVAL:-60}"
 
