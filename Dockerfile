@@ -87,8 +87,14 @@ RUN set -eux; \
     echo ">>> warp-svc 解包路径: ${WARP_SVC}"; \
     echo ">>> warp-cli 解包路径: ${WARP_CLI}"; \
     test -n "$WARP_SVC" && test -n "$WARP_CLI"; \
-    ln -sf "$WARP_SVC" /out/usr/local/bin/warp-svc; \
-    ln -sf "$WARP_CLI" /out/usr/local/bin/warp-cli; \
+    chmod 0755 "/out${WARP_SVC}" "/out${WARP_CLI}"; \
+    # 符号链接必须用相对路径：绝对目标 /usr/bin/warp-svc 在 builder 内会解析到
+    # builder 自身文件系统（未安装 deb）导致断言失败；相对路径在 /out 自检与
+    # runtime 中均指向 /out 内和镜像内的真实文件。
+    SVC_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_SVC}")"; \
+    CLI_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_CLI}")"; \
+    ln -sf "$SVC_REL" /out/usr/local/bin/warp-svc; \
+    ln -sf "$CLI_REL" /out/usr/local/bin/warp-cli; \
     # 构建期断言：二进制必须就位且可执行，否则立即失败暴露问题
     test -x /out/usr/local/bin/warp-svc; \
     test -x /out/usr/local/bin/warp-cli; \
