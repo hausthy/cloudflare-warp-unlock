@@ -95,6 +95,13 @@ RUN set -eux; \
     # 构建期断言：二进制必须就位且可执行，否则立即失败暴露问题
     test -x /out/usr/local/bin/warp-svc; \
     test -x /out/usr/local/bin/warp-cli; \
+    # 删除用不到的附属工具（warp-diag 诊断收集器等可能上百 MB）
+    rm -f /out/usr/bin/warp-diag /out/usr/bin/warp-debug \
+          /out/usr/bin/warp-diag-service /out/usr/bin/warp-tunnel \
+          /out/usr/bin/warp-util 2>/dev/null || true; \
+    # 打印 /out 体积分布，便于排查镜像膨胀
+    echo ">>> /out 总体积: $(du -sh /out | cut -f1)"; \
+    du -xh -d2 /out/usr | sort -rh | head -12; \
     # ---------- 清理构建期产物（不进入任何镜像层记录也无妨，双保险） ----------
     rm -rf /var/cache/apt/archives/*.deb /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
