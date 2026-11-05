@@ -32,7 +32,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl; \
+    apt-get install -y --no-install-recommends ca-certificates curl binutils; \
     # 接入 Cloudflare 官方 APT 源（bookworm 的 apt 支持直接引用 armored 密钥，无需 gnupg）
     mkdir -p /etc/apt/keyrings; \
     curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg \
@@ -85,6 +85,16 @@ RUN set -eux; \
     gzip -dc /tmp/gost.gz > /out/usr/local/bin/gost; \
     chmod 0755 /out/usr/local/bin/gost; \
     rm -f /tmp/gost.gz; \
+    # ---------- 剥离符号表与调试信息（对运行时零影响，体积收益巨大） ----------
+    # warp-svc / warp-cli / gost 均为 Go/Rust 二进制，自带数十 MB 的 DWARF 调试
+    # 段；动态库同样带符号表。--strip-unneeded 只移除重定位与调试所需符号，
+    # 运行行为完全不变。
+    if command -v strip >/dev/null 2>&1; then \
+      echo ">>> strip 前体积: $(du -sh /out | cut -f1)"; \
+      find /out -type f \( -perm /111 -o -name '*.so*' \) \
+        -exec strip --strip-unneeded {} + 2>/dev/null || true; \
+      echo ">>> strip 后体积: $(du -sh /out | cut -f1)"; \
+    fi; \
     # ---------- PATH 兜底符号链接（必须用相对路径：绝对目标会在 builder 内
     # 解析到 builder 自身文件系统导致断言失败） ----------
     WARP_SVC="$(find /out -name warp-svc -type f | head -n1 | sed "s|^/out||")"; \
@@ -134,6 +144,12 @@ COPY scripts/unlock-check.sh /app/unlock-check.sh
 RUN chmod 0755 /entrypoint.sh /app/check-status.sh /app/unlock-check.sh \
     && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && echo "Asia/Shanghai" > /etc/timezone \
+    # tzdata 完整 zoneinfo 约 12MB；默认时区固定为 Asia/Shanghai，仅保留该条目
+    # （如需其他时区，在 entrypoint 中通过 TZ 环境变量引用 /etc/localtime 即可，
+    #  或挂载宿主机 /usr/share/zoneinfo 覆盖）
+    && find /usr/share/zoneinfo -mindepth 1 -delete \
+    && mkdir -p /usr/share/zoneinfo/Asia \
+    && cp /etc/localtime /usr/share/zoneinfo/Asia/Shanghai \
     && mkdir -p /logs /var/lib/cloudflare-warp \
     # 运行时断言：warp 二进制与 GOST 必须存在且可执行
     && test -x /usr/local/bin/warp-svc \
