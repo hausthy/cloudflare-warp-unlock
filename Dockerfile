@@ -177,7 +177,7 @@ RUN set -eux; \
 # ------------------------------------------------------------------------------
 # Stage 2: runtime —— 极简运行时
 # ------------------------------------------------------------------------------
-FROM docker.io/debian:${DEBIAN_RELEASE}-slim
+FROM docker.io/debian:${DEBIAN_RELEASE}-slim AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Asia/Shanghai
