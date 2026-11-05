@@ -3,9 +3,12 @@ set -e
 
 # ==============================================================================
 # WARP 链路延时与真实握手协议（IPv4/IPv6）探测工具
-# 用法: warp-ping [目标URL或域名]
-# 示例: warp-ping chatgpt.com
-#       warp-ping https://netflix.com
+# 这是一个运行在宿主机的外置运维测试工具，无需进入容器，直接在宿主机调用
+#
+# 用法: ./tools/warp-ping.sh [目标URL或域名]
+# 示例: ./tools/warp-ping.sh chatgpt.com
+#       ./tools/warp-ping.sh t66y.com
+#       ./tools/warp-ping.sh https://netflix.com
 # ==============================================================================
 
 TARGET="${1:-https://chatgpt.com}"
@@ -44,6 +47,7 @@ else
   T_TOTAL="0.000000"
 fi
 
+# 核心判定：根据实际握手建立的协议精准归类
 if echo "$CONNECT_LINE" | grep -qi 'IPv6'; then
   IP_TARGET=$(echo "$CONNECT_LINE" | sed -n 's/.*SOCKS5 connect to IPv6 \([^ ]*\).*/\1/p')
   ROUTE_STATUS="🟢 100% 实锤走【IPv6 纯净通道】 (${IP_TARGET})"

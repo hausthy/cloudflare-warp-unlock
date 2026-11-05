@@ -138,13 +138,14 @@ warp-unlock-docker/
 │   └── cron/                    # BusyBox crond 定时任务配置
 ├── logs/                        # 挂载卷：GOST 运行日志
 │   └── gost.log                 # 代理连接日志
+├── tools/                       # 宿主机外置运维工具目录
+│   └── warp-ping.sh             # 链路耗时与真实 IPv4/IPv6 握手分析工具
 └── scripts/
     ├── entrypoint.sh            # 容器主入口初始化脚本
     ├── wireguard-manager.sh     # 用户态 wireguard-go 启停、防环路由与 DNS 管理器
     ├── wg-quick                 # 兼容 unlock.sh 调用的透明包装层
     ├── setup-unlock.sh          # 解锁任务自动化安装与三级降级加载逻辑
     ├── check-status.sh          # 容器一键状态全面诊断脚本
-    ├── warp-ping.sh             # 智能双栈（IPv4/IPv6）握手与链路耗时分析工具
     └── warp-unlock.sh           # 本地可魔改脚本（优先挂载生效 / 构建保底源）
 ```
 
@@ -246,15 +247,15 @@ docker compose exec warp-unlock bash /data/warp_unlock.sh
 
 ### 5. 链路测速与 IPv4/IPv6 握手分析 (warp-ping)
 
-内置了快速测速与真实底层协议嗅探工具，能 100% 实锤捕获每次请求实际建立的是 IPv6 还是 IPv4：
+项目附带了独立的宿主机运维测试工具 `tools/warp-ping.sh`，完全独立于容器外运行，无需进入容器，直接在宿主机执行即可实锤捕获每次请求实际建立的是 IPv6 还是 IPv4：
 
 ```bash
-# 宿主机直接调用（自动识别 40000 或 19588 端口）
-./scripts/warp-ping.sh chatgpt.com
+# 赋予执行权限并直接测试（自动识别 19588 或 40000 端口）
+chmod +x tools/warp-ping.sh
 
-# 或在容器内直接调用
-docker compose exec warp-unlock warp-ping chatgpt.com
-docker compose exec warp-unlock warp-ping netflix.com
+./tools/warp-ping.sh chatgpt.com
+./tools/warp-ping.sh t66y.com
+./tools/warp-ping.sh netflix.com
 ```
 
 ---

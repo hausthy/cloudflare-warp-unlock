@@ -85,14 +85,12 @@ COPY scripts/wireguard-manager.sh /app/wireguard-manager.sh
 COPY scripts/wg-quick /usr/local/bin/wg-quick
 COPY scripts/setup-unlock.sh /app/setup-unlock.sh
 COPY scripts/check-status.sh /app/check-status.sh
-COPY scripts/warp-ping.sh /usr/local/bin/warp-ping
 
 RUN chmod 0755 /entrypoint.sh \
                /app/wireguard-manager.sh \
                /usr/local/bin/wg-quick \
                /app/setup-unlock.sh \
                /app/check-status.sh \
-               /usr/local/bin/warp-ping \
                /app/warp-unlock.fallback.sh
 
 WORKDIR /etc/wireguard
