@@ -19,6 +19,17 @@ PUBLIC_PORT=40000              # 对外暴露端口
 mkdir -p /logs /var/lib/cloudflare-warp
 
 # ------------------------------------------------------------------------------
+# D-Bus（可选）：warp-svc 的 power_notifier 会尝试连接 system bus 读取电源状态
+# （桌面场景才用），容器内无 D-Bus 时每 3 秒重试并打印 WARN 日志。
+# 镜像内带了轻量 dbus-daemon，这里拉起它即可彻底消除该日志噪音；失败也无碍。
+# ------------------------------------------------------------------------------
+if command -v dbus-daemon >/dev/null 2>&1; then
+  mkdir -p /run/dbus
+  dbus-uuidgen --ensure >/dev/null 2>&1 || true
+  dbus-daemon --system --fork >/dev/null 2>&1 || true
+fi
+
+# ------------------------------------------------------------------------------
 # GOST 前端参数：auto 协议（SOCKS5 / SOCKS4 / HTTP CONNECT 自动识别）+ 可选认证
 # ------------------------------------------------------------------------------
 GOST_USER_PASS=""

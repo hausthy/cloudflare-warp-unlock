@@ -110,9 +110,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Asia/Shanghai
 
 # 仅安装运行时必需包，并即时清理 apt 缓存与文档，杜绝缓存进入镜像层
+# （dbus：warp-svc 启动时会尝试连接 system bus 读取电源状态，缺失时每 3 秒
+#   重试并打印 WARN；提供轻量 dbus-daemon 即可彻底消除该日志噪音）
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl tzdata; \
+    apt-get install -y --no-install-recommends ca-certificates curl tzdata dbus; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/* \
            /usr/share/doc/* /usr/share/man/* /usr/share/info/* /usr/share/locale/*
