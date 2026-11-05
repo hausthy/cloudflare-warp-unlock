@@ -44,11 +44,22 @@ services:
       WARP_LOG_LEVEL: "${WARP_LOG_LEVEL:-error}"
       # warp-svc 日志落盘文件（./logs/warp.log）；留空 = 仅输出 docker logs
       WARP_LOG_FILE: "${WARP_LOG_FILE:-/logs/warp.log}"
+      # 追加日志噪音关键字（ERE 正则，| 分隔），叠加在内置白名单之上，可留空
+      LOG_NOISE_KEYWORDS: "${LOG_NOISE_KEYWORDS:-}"
 
     # 注册状态持久化：跨容器重启保留 WARP 账户，避免重复注册
     volumes:
       - ./config:/var/lib/cloudflare-warp
       - ./logs:/logs
+
+    # 资源限制：
+    #   内存——warp-svc（MASQUE/QUIC）稳态 ~100-150MB + gost ~30MB，512MB 留 2-3 倍余量；
+    #         超限被内核 OOM Kill 后由 restart 策略自动拉起
+    #   CPU——代理转发单核足够（QUIC 加解密 + 中转），限 1 核防止异常失控吃满宿主机
+    #   pids——warp-svc 以线程为主，256 上限防泄漏
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
 
     # 日志轮转：单文件 1MB、最多保留 3 份
     logging:

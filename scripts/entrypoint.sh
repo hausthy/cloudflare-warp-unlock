@@ -172,14 +172,28 @@ fi
 #   - WARP_LOG_FILE 非空时经 tee 同步落盘（stdout 仍进 docker logs）
 # ------------------------------------------------------------------------------
 filter_by_level() {
+  # 内置噪音关键字（容器环境已验证无害的正则，| 分隔）
+  local builtin_noise=' (DEBUG|INFO) |quiche: .* idle timeout expired|Failed to load SMBiosData|Discarding structured log emitted without ZT registration|Reinstalling missing WARP fwmark|IPC writer failed|Failed to bind to preferred UDP socket|actor_emergency_disconnect|NewNeighbour|^(h|ip|ts|uag|colo|sliver|http|loc|tls|sni|warp|gateway|rbi|kex|visit_scheme|fl)=|^[[:space:]]*(changes|new_info|power_state|fallback_disconnect_reason|failed_disconnect_reason)[[:space:]]*='
+  # 用户自定义追加关键字（LOG_NOISE_KEYWORDS，ERE 正则，| 分隔），叠加在内置之上
+  local extra="${LOG_NOISE_KEYWORDS:-}"
   # warp-svc 输出带 ANSI 颜色码（如 "<ESC>[34mDEBUG<ESC>[0m"），裸 ' DEBUG ' 匹配不上，
   # 必须先剥离转义序列再按级别过滤；顺带让落盘日志为纯文本、便于 grep
   # （NO_COLOR 尝试从源头关闭颜色，warp-svc 不识别时由 sed 兜底）
   sed -E $'s/\x1b\\[[0-9;]*[mK]//g' | {
     case "${WARP_LOG_LEVEL:-error}" in
       debug|trace) cat ;;
-      warn|error)  grep -Ev ' (DEBUG|INFO) |Reinstalling missing WARP fwmark|IPC writer failed|Failed to bind to preferred UDP socket|actor_emergency_disconnect|NewNeighbour|Failed to load SMBiosData|Discarding structured log emitted without ZT registration|quiche: .* idle timeout expired|^(h|ip|ts|uag|colo|sliver|http|loc|tls|sni|warp|gateway|rbi|kex|visit_scheme|fl)=|^[[:space:]]*(changes|new_info|power_state|fallback_disconnect_reason|failed_disconnect_reason)[[:space:]]*=' ;;
-      *)           grep -v ' DEBUG ' ;;
+      warn|error)
+        if [[ -n "$extra" ]]; then
+          grep -Ev "${builtin_noise}|${extra}"
+        else
+          grep -Ev "$builtin_noise"
+        fi ;;
+      *)
+        if [[ -n "$extra" ]]; then
+          grep -Ev " DEBUG |${extra}"
+        else
+          grep -v ' DEBUG '
+        fi ;;
     esac
   }
 }
