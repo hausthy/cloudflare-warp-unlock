@@ -197,7 +197,15 @@ RUN set -eux; \
     # 运行期不再安装任何软件包，apt/dpkg 工具链与元数据整体移除（~15MB）。
     # 副作用：基于此镜像的衍生构建无法再 apt install，属预期行为
     && rm -rf /usr/bin/apt* /usr/bin/dpkg* /usr/lib/apt /usr/lib/dpkg \
-              /var/lib/dpkg /var/lib/apt /etc/apt
+              /var/lib/dpkg /var/lib/apt /etc/apt \
+    # 基础镜像残留的无用组件（~19MB）：
+    #   gconv —— glibc 字符集转换模块，运行期仅用 UTF-8/ASCII
+    #   perl —— base 镜像的 Essential 残留，脚本与 dbus 均不依赖
+    #   openssl CLI —— 静态 curl 自带 TLS 实现，仅需 libssl 库本体
+    && rm -rf /usr/lib/x86_64-linux-gnu/gconv \
+              /usr/lib/x86_64-linux-gnu/perl-base \
+              /usr/bin/perl /usr/bin/perl5.* \
+              /usr/bin/openssl /usr/lib/ssl/misc
 
 # 从 builder 层拷贝运行时增量：warp 二进制 + 全部依赖库 + GOST
 COPY --from=builder /out/ /
