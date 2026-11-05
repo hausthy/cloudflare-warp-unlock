@@ -13,8 +13,9 @@
 #          warp-cli 的全部传递依赖，并显式补上 dlopen 加载的 libtss2-*（TPM2）
 #          与 /usr/lib/warp 数据目录；GUI 依赖栈（GTK/gstreamer 等，约 400MB）
 #          完全不进 /out。GOST 一并在此下载。
-#   Stage 2 runtime —— 仅安装 ca-certificates / curl / tzdata / dbus 四个运行时
-#          必需包，COPY /out 增量即得最终镜像。
+#   Stage 2 runtime —— 仅安装 ca-certificates / tzdata / dbus 三个运行时
+#          必需包，curl 使用 builder 提供的静态二进制（SHA256 强校验），
+#          COPY /out 增量即得最终镜像。
 # ==============================================================================
 
 ARG DEBIAN_RELEASE=bookworm
@@ -26,6 +27,11 @@ FROM docker.io/debian:${DEBIAN_RELEASE}-slim AS builder
 
 ARG DEBIAN_RELEASE
 ARG GOST_VERSION=2.11.5
+# 静态 curl（stunnel/static-curl 项目，替代 apt curl 及其 ~20MB 动态依赖闭包）；
+# SHA256 取自 release 页官方 checksums，构建期强校验
+ARG CURL_STATIC_VERSION=8.23.0-1
+ARG CURL_STATIC_SHA256_AMD64=b19756efa22538f0af3bb293626841c9dbf0d168489a1924f0e3edec2f560ba6
+ARG CURL_STATIC_SHA256_ARM64=71780652d4e4de42bc0f2138cb764c90a7f8d4b64969450dd1dde5518cc5ff09
 ARG UPX_VERSION=4.2.4
 # UPX 同时压缩 warp-svc（默认 0 关闭）。压后镜像可再省 ~60MB，但 warp-svc 是
 # 常驻守护进程，压缩属于非常规操作；如连接异常请用 --build-arg UPX_WARP_SVC=0 回退
@@ -135,6 +141,17 @@ RUN set -eux; \
     fi; \
     echo ">>> UPX 后:"; ls -lh /out/usr/local/bin/gost "/out${WARP_CLI}" "/out${WARP_SVC}" | awk '{print $5, $9}'; \
     rm -rf /tmp/upx /tmp/upx.tar.xz; \
+    # ---------- 静态 curl（下载到 /out，runtime 直接 COPY，免去动态依赖全家桶） ----------
+    case "${TARGETARCH}" in \
+      amd64) CURL_ARCH=x86_64; CURL_SHA256="${CURL_STATIC_SHA256_AMD64}" ;; \
+      arm64) CURL_ARCH=aarch64; CURL_SHA256="${CURL_STATIC_SHA256_ARM64}" ;; \
+      *) echo "不支持的构建架构: ${TARGETARCH}"; exit 1 ;; \
+    esac; \
+    curl -fsSL --retry 3 \
+      "https://github.com/stunnel/static-curl/releases/download/${CURL_STATIC_VERSION}/curl-linux-${CURL_ARCH}-glibc" \
+      -o /out/usr/local/bin/curl; \
+    echo "${CURL_SHA256}  /out/usr/local/bin/curl" | sha256sum -c -; \
+    chmod 0755 /out/usr/local/bin/curl; \
     SVC_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_SVC}")"; \
     CLI_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_CLI}")"; \
     ln -sf "$SVC_REL" /out/usr/local/bin/warp-svc; \
@@ -156,12 +173,14 @@ FROM docker.io/debian:${DEBIAN_RELEASE}-slim
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Asia/Shanghai
 
-# 仅安装运行时必需包，并即时清理 apt 缓存与文档，杜绝缓存进入镜像层
+# 仅安装运行时必需包（curl 由 builder 提供静态二进制，不再装 apt 版及其
+# libcurl/openssl/krb5/ldap/sasl 等动态依赖），并即时清理 apt 缓存与文档，
+# 杜绝缓存进入镜像层
 # （dbus：warp-svc 启动时会尝试连接 system bus 读取电源状态，缺失时每 3 秒
 #   重试并打印 WARN；提供轻量 dbus-daemon 即可彻底消除该日志噪音）
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl tzdata dbus; \
+    apt-get install -y --no-install-recommends ca-certificates tzdata dbus; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/* \
            /usr/share/doc/* /usr/share/man/* /usr/share/info/* /usr/share/locale/* \
@@ -190,7 +209,8 @@ RUN chmod 0755 /entrypoint.sh /app/check-status.sh /app/unlock-check.sh \
     # 运行时断言：warp 二进制与 GOST 必须存在且可执行
     && test -x /usr/local/bin/warp-svc \
     && test -x /usr/local/bin/warp-cli \
-    && test -x /usr/local/bin/gost
+    && test -x /usr/local/bin/gost \
+    && test -x /usr/local/bin/curl
 
 # 注册状态持久化目录（warp-svc 数据目录；挂载宿主机 ./config 可跨容器重启保留账户）
 VOLUME ["/var/lib/cloudflare-warp"]
