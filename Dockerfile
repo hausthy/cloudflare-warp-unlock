@@ -142,14 +142,21 @@ RUN set -eux; \
     echo ">>> UPX 后:"; ls -lh /out/usr/local/bin/gost "/out${WARP_CLI}" "/out${WARP_SVC}" | awk '{print $5, $9}'; \
     rm -rf /tmp/upx /tmp/upx.tar.xz; \
     # ---------- 静态 curl（下载到 /out，runtime 直接 COPY，免去动态依赖全家桶） ----------
+    # 发行包为 curl-linux-<arch>-glibc-<version>.tar.xz，内含静态 curl 二进制
     case "${TARGETARCH}" in \
       amd64) CURL_ARCH=x86_64; CURL_SHA256="${CURL_STATIC_SHA256_AMD64}" ;; \
       arm64) CURL_ARCH=aarch64; CURL_SHA256="${CURL_STATIC_SHA256_ARM64}" ;; \
       *) echo "不支持的构建架构: ${TARGETARCH}"; exit 1 ;; \
     esac; \
     curl -fsSL --retry 3 \
-      "https://github.com/stunnel/static-curl/releases/download/${CURL_STATIC_VERSION}/curl-linux-${CURL_ARCH}-glibc" \
-      -o /out/usr/local/bin/curl; \
+      "https://github.com/stunnel/static-curl/releases/download/${CURL_STATIC_VERSION}/curl-linux-${CURL_ARCH}-glibc-${CURL_STATIC_VERSION}.tar.xz" \
+      -o /tmp/static-curl.tar.xz; \
+    mkdir -p /tmp/static-curl; \
+    tar -xJf /tmp/static-curl.tar.xz -C /tmp/static-curl; \
+    find /tmp/static-curl -type f -name curl -exec cp {} /out/usr/local/bin/curl \;; \
+    rm -rf /tmp/static-curl /tmp/static-curl.tar.xz; \
+    test -x /out/usr/local/bin/curl; \
+    # SHA256 针对二进制本体（取自 release 页 checksums），供应链强校验
     echo "${CURL_SHA256}  /out/usr/local/bin/curl" | sha256sum -c -; \
     chmod 0755 /out/usr/local/bin/curl; \
     SVC_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_SVC}")"; \
