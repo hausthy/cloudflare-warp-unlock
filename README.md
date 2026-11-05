@@ -144,6 +144,7 @@ warp-unlock-docker/
     ├── wg-quick                 # 兼容 unlock.sh 调用的透明包装层
     ├── setup-unlock.sh          # 解锁任务自动化安装与三级降级加载逻辑
     ├── check-status.sh          # 容器一键状态全面诊断脚本
+    ├── warp-ping.sh             # 智能双栈（IPv4/IPv6）握手与链路耗时分析工具
     └── warp-unlock.sh           # 本地可魔改脚本（优先挂载生效 / 构建保底源）
 ```
 
@@ -241,6 +242,19 @@ docker compose exec warp-unlock wg-quick up wgcf && echo -n "新 IPv4: " && curl
 
 # 手动触发一次完整的流媒体解锁检测判定并记录日志
 docker compose exec warp-unlock bash /data/warp_unlock.sh
+```
+
+### 5. 链路测速与 IPv4/IPv6 握手分析 (warp-ping)
+
+内置了快速测速与真实底层协议嗅探工具，能 100% 实锤捕获每次请求实际建立的是 IPv6 还是 IPv4：
+
+```bash
+# 宿主机直接调用（自动识别 40000 或 19588 端口）
+./scripts/warp-ping.sh chatgpt.com
+
+# 或在容器内直接调用
+docker compose exec warp-unlock warp-ping chatgpt.com
+docker compose exec warp-unlock warp-ping netflix.com
 ```
 
 ---

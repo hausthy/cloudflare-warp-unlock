@@ -183,6 +183,9 @@ tail -f data/result.log
 # 容器一键状态全面诊断
 docker compose exec warp-unlock /app/check-status.sh
 
+# 链路耗时与真实 IPv4/IPv6 握手分析 (100% 实锤探测)
+docker compose exec warp-unlock warp-ping chatgpt.com
+
 # 强制立刻刷新更换出口 IP (1秒见效)
 docker compose exec warp-unlock wg-quick up wgcf && echo -n "新 IPv4: " && curl -s --proxy socks5h://127.0.0.1:40000 https://api-ipv4.ip.sb/ip
 ```
