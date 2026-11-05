@@ -70,12 +70,14 @@ fi
   done
 
   # 2. 绑定 WARP+ License（可选）。docker compose 可能保留引号，先剥离一对。
+  #    注意：设备槽位 = 注册（存于 /var/lib/cloudflare-warp），保留 config 重建
+  #    容器不会占用新设备；清空 config 重注册才会。
   LICENSE="${WARP_LICENSE:-}"
   LICENSE="${LICENSE#[\"\']}"
   LICENSE="${LICENSE%[\"\']}"
   if [[ -n "$LICENSE" ]]; then
     if warp-cli --accept-tos registration license "$LICENSE" ||
-       warp-cli --accept-tos license "$LICENSE"; then
+       warp-cli --accept-tos license "$LICENSE" 2>/dev/null; then
       log "WARP+ License 绑定成功，账户已升级为 WARP+"
     else
       log "错误：WARP+ License 绑定失败（License 无效、设备数已满或网络异常），以免费账户继续运行"
@@ -162,12 +164,20 @@ fi
 
 # ------------------------------------------------------------------------------
 # warp-svc 前台运行，作为容器主进程（保持 PID1 以便正确接收 docker stop 信号）
-#   - RUST_LOG 已导出，控制日志级别
+#   - 实测 warp-svc 不完全遵循 RUST_LOG，按 WARP_LOG_LEVEL 对输出行做兜底过滤：
+#     info 隐 DEBUG，warn/error 再隐 INFO（debug/trace 不过滤）
 #   - WARP_LOG_FILE 非空时经 tee 同步落盘（stdout 仍进 docker logs）
 # ------------------------------------------------------------------------------
+filter_by_level() {
+  case "${WARP_LOG_LEVEL:-info}" in
+    debug|trace) cat ;;
+    warn|error)  grep -Ev ' (DEBUG|INFO) ' ;;
+    *)           grep -v ' DEBUG ' ;;
+  esac
+}
 if [[ -n "$WARP_LOG_FILE" ]]; then
   mkdir -p "$(dirname "$WARP_LOG_FILE")"
-  log "warp-svc 日志：级别 ${RUST_LOG}，落盘 ${WARP_LOG_FILE}"
-  exec warp-svc > >(tee -a "$WARP_LOG_FILE") 2>&1
+  log "warp-svc 日志：级别 ${WARP_LOG_LEVEL:-info}，落盘 ${WARP_LOG_FILE}"
+  exec warp-svc > >(filter_by_level | tee -a "$WARP_LOG_FILE") 2>&1
 fi
-exec warp-svc
+exec warp-svc > >(filter_by_level) 2>&1
