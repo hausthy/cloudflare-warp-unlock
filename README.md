@@ -158,7 +158,7 @@ docker compose logs -f warp-unlock
 
 ```bash
 # 1. 克隆分支（HTTPS 免登录；国内服务器慢可加镜像前缀 https://ghfast.top/）
-git clone -b feat/masque-official-client https://github.com/hausthy/warp_unlock.git warp-unlock-v2
+git clone -b v2 https://github.com/hausthy/warp_unlock.git warp-unlock-v2
 cd warp-unlock-v2
 
 # 2. 准备环境变量（按需填写 WARP_LICENSE / WARP_REGION / UNLOCK_STREAMS 等）
