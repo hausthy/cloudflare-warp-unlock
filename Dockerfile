@@ -140,7 +140,6 @@ RUN set -eux; \
       /tmp/upx/upx -q -9 "/out${WARP_SVC}" || true; \
     fi; \
     echo ">>> UPX 后:"; ls -lh /out/usr/local/bin/gost "/out${WARP_CLI}" "/out${WARP_SVC}" | awk '{print $5, $9}'; \
-    rm -rf /tmp/upx /tmp/upx.tar.xz; \
     # ---------- 静态 curl（下载到 /out，runtime 直接 COPY，免去动态依赖全家桶） ----------
     # 发行包为 curl-linux-<arch>-glibc-<version>.tar.xz，内含静态 curl 二进制
     case "${TARGETARCH}" in \
@@ -158,7 +157,10 @@ RUN set -eux; \
     test -x /out/usr/local/bin/curl; \
     # SHA256 针对二进制本体（取自 release 页 checksums），供应链强校验
     echo "${CURL_SHA256}  /out/usr/local/bin/curl" | sha256sum -c -; \
+    # 校验通过后再压缩（UPX 会改写文件，必须放在校验之后）
+    /tmp/upx/upx -q -9 /out/usr/local/bin/curl || true; \
     chmod 0755 /out/usr/local/bin/curl; \
+    rm -rf /tmp/upx /tmp/upx.tar.xz; \
     SVC_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_SVC}")"; \
     CLI_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_CLI}")"; \
     ln -sf "$SVC_REL" /out/usr/local/bin/warp-svc; \
