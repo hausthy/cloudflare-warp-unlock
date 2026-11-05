@@ -46,6 +46,8 @@ services:
       WARP_LOG_LEVEL: "${WARP_LOG_LEVEL:-error}"
       # warp-svc 日志落盘文件（./logs/warp.log）；留空 = 仅输出 docker logs
       WARP_LOG_FILE: "${WARP_LOG_FILE:-/logs/warp.log}"
+      # 设为 1 时 warp-svc 日志在落盘的同时也输出到容器日志（默认 0 = 仅落盘文件）
+      WARP_LOG_STDOUT: "${WARP_LOG_STDOUT:-0}"
       # 追加日志噪音关键字（ERE 正则，| 分隔），叠加在内置白名单之上，可留空
       LOG_NOISE_KEYWORDS: "${LOG_NOISE_KEYWORDS:-}"
 
@@ -63,7 +65,8 @@ services:
     cpus: 1.0
     pids_limit: 256
 
-    # 日志轮转：单文件 1MB、最多保留 3 份
+    # 容器日志轮转（默认仅存放 entrypoint 生命周期日志，每小时几行；
+    # warp-svc 输出默认只落盘 ./logs/warp.log 不进这里，WARP_LOG_STDOUT=1 可改回同步输出）
     logging:
       driver: json-file
       options:

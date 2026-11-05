@@ -213,7 +213,13 @@ filter_by_level() {
 }
 if [[ -n "$WARP_LOG_FILE" ]]; then
   mkdir -p "$(dirname "$WARP_LOG_FILE")"
-  log "warp-svc 日志：级别 ${WARP_LOG_LEVEL:-error}，落盘 ${WARP_LOG_FILE}"
-  exec warp-svc > >(filter_by_level | tee -a "$WARP_LOG_FILE") 2>&1
+  if [[ "${WARP_LOG_STDOUT:-0}" == "1" ]]; then
+    log "warp-svc 日志：级别 ${WARP_LOG_LEVEL:-error}，落盘 ${WARP_LOG_FILE}，同步输出到容器日志"
+    exec warp-svc > >(filter_by_level | tee -a "$WARP_LOG_FILE") 2>&1
+  fi
+  # 默认不写容器日志：warp-svc 输出仅经过滤后落盘文件，docker logs 只保留
+  # 本脚本的生命周期日志（注册/看门狗/巡检，每小时几行）
+  log "warp-svc 日志：级别 ${WARP_LOG_LEVEL:-error}，仅落盘 ${WARP_LOG_FILE}（容器日志不输出，查看：tail -f logs/warp.log）"
+  exec warp-svc > >(filter_by_level >> "$WARP_LOG_FILE") 2>&1
 fi
 exec warp-svc > >(filter_by_level) 2>&1
