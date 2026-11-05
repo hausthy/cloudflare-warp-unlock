@@ -231,6 +231,18 @@ ss -lntp | grep 40000
 docker compose exec warp-unlock /app/check-status.sh
 ```
 
+### 4. 强制刷新与轮换出口 IP
+
+如遇当前 IP 被风控，可立刻手动重连更换 WARP 出口 IP（无需等待 5 分钟定时任务）：
+
+```bash
+# 秒级重连换新 IP 并直接打印在屏幕上
+docker compose exec warp-unlock wg-quick up wgcf && echo -n "新 IPv4: " && curl -s --proxy socks5h://127.0.0.1:40000 https://api-ipv4.ip.sb/ip
+
+# 手动触发一次完整的流媒体解锁检测判定并记录日志
+docker compose exec warp-unlock bash /data/warp_unlock.sh
+```
+
 ---
 
 ## 📺 联动主流远程服务器应用（分流配置示例）
@@ -343,6 +355,16 @@ rm -rf config/* data/* logs/*
 docker compose exec warp-unlock /app/setup-unlock.sh --force
 ```
 即可实时热加载并应用你的定制修改。
+
+### Q6: 如何手动强制立刻刷新/更换 WARP 出口 IP？
+执行以下命令，即可在 **1 秒内强制重连 WireGuard 隧道并打印新 IP**：
+```bash
+docker compose exec warp-unlock wg-quick up wgcf && echo -n "新 IPv4: " && curl -s --proxy socks5h://127.0.0.1:40000 https://api-ipv4.ip.sb/ip
+```
+若需要同时手动触发完整的流媒体解锁检测与判定写入日志：
+```bash
+docker compose exec warp-unlock bash /data/warp_unlock.sh
+```
 
 ---
 
