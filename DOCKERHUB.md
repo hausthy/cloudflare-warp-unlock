@@ -41,10 +41,10 @@
 
 | 配置 | 体积 |
 | :--- | :--- |
-| `UPX_WARP_SVC=1`（推荐） | ~139MB |
-| 默认（不压缩 warp-svc） | ~190MB |
+| 默认（UPX 压缩 warp-svc，推荐） | ~139MB |
+| `UPX_WARP_SVC=0`（不压缩回退版） | ~190MB |
 
-> 若开启 UPX 压缩 warp-svc 后守护进程异常，改回 `UPX_WARP_SVC=0` 重建即可回退。
+> 若 UPX 压缩的 warp-svc 守护进程异常，用 `UPX_WARP_SVC=0` 重建即可回退。
 > 排障可构建带完整 shell 的中间层镜像：`docker build --target runtime ...`
 
 ---

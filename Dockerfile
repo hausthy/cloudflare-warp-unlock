@@ -33,9 +33,9 @@ ARG CURL_STATIC_VERSION=8.23.0-1
 ARG CURL_STATIC_SHA256_AMD64=b19756efa22538f0af3bb293626841c9dbf0d168489a1924f0e3edec2f560ba6
 ARG CURL_STATIC_SHA256_ARM64=71780652d4e4de42bc0f2138cb764c90a7f8d4b64969450dd1dde5518cc5ff09
 ARG UPX_VERSION=4.2.4
-# UPX 同时压缩 warp-svc（默认 0 关闭）。压后镜像可再省 ~60MB，但 warp-svc 是
-# 常驻守护进程，压缩属于非常规操作；如连接异常请用 --build-arg UPX_WARP_SVC=0 回退
-ARG UPX_WARP_SVC=0
+# UPX 同时压缩 warp-svc（默认 1 开启，镜像 ~139MB vs ~190MB）。warp-svc 为
+# 常驻守护进程，如运行异常可用 --build-arg UPX_WARP_SVC=0 回退不压缩版本
+ARG UPX_WARP_SVC=1
 ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
