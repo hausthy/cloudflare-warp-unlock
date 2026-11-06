@@ -98,18 +98,20 @@ fi
     fi
   fi
 
-  # 3.5 隧道协议（可选）：MASQUE（默认，HTTP3/QUIC，内存 ~170MB）或 WireGuard
-  #     （老协议栈，无 QUIC/quiche，实测内存显著更低，适合小内存 VPS；
-  #      但 Cloudflare 重心在 MASQUE，两协议解锁表现可能有差异）
-  #     注意须在 connect 之前设置；注册状态跨协议保留
-  WARP_PROTOCOL="${WARP_PROTOCOL:-MASQUE}"
-  if [[ "$WARP_PROTOCOL" != "MASQUE" ]]; then
-    if warp-cli --accept-tos tunnel protocol set "$WARP_PROTOCOL" 2>/dev/null; then
-      log "隧道协议已切换为 ${WARP_PROTOCOL}"
-    else
-      log "警告：warp-cli 不支持切换协议（tunnel protocol set），保持默认 MASQUE"
-      WARP_PROTOCOL="MASQUE"
-    fi
+  # 3.5 隧道协议：本镜像固定使用 proxy 模式（warp-cli mode proxy），而 warp-svc 在
+  #     proxy 模式下**只支持 MASQUE**——官方硬限制，违反时表现为 connect 每 5 秒报
+  #     InvalidKey("Proxy mode only supports MASQUE") 并不停重试（隧道永远起不来）。
+  #     因此不再提供 WireGuard 选项：无条件固化 MASQUE，并把持久化配置里可能残留的
+  #     WireGuard 显式改回来（否则升级镜像后仍会沿用旧配置继续失败）。
+  __proto_req="${WARP_PROTOCOL:-MASQUE}"
+  if [[ "$__proto_req" != "MASQUE" ]]; then
+    log "警告：WARP_PROTOCOL=${__proto_req} 不受支持——proxy 模式仅支持 MASQUE，已强制回退（要省内存请改用非 proxy 模式方案）"
+  fi
+  WARP_PROTOCOL="MASQUE"
+  if warp-cli --accept-tos tunnel protocol set MASQUE >/dev/null 2>&1; then
+    log "隧道协议：MASQUE（proxy 模式唯一受支持协议）"
+  else
+    log "隧道协议：MASQUE（当前 warp-cli 无 protocol 子命令，沿用默认值）"
   fi
 
   # 4. 切换 proxy 模式并设置本机端口，然后建立连接（兼容新旧 warp-cli 语法）
@@ -120,14 +122,21 @@ fi
   warp-cli --accept-tos connect
 
   # 5. 等待隧道连通（最多 60 秒），不阻塞代理启动
+  __connected=0
   for _ in $(seq 1 60); do
     if curl -ksm5 -x "socks5h://127.0.0.1:${WARP_PROXY_PORT}" \
          https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep -Eq '^warp=(on|plus)$'; then
       log "WARP (${WARP_PROTOCOL}) 隧道已连通"
+      __connected=1
       break
     fi
     sleep 1
   done
+  if [[ "$__connected" != "1" ]]; then
+    # 不退出：gost 照常启动，交给看门狗继续重连；但必须显式报出来
+    log "警告：隧道 60 秒内未连通（warp-cli status 通常显示 Connecting），看门狗将继续重连；排查请查看 ${WARP_LOG_FILE:-容器日志} 中 warp-svc 的 ERROR 行"
+    warp-cli --accept-tos status 2>&1 | sed 's/^/    /' | while IFS= read -r l; do log "$l"; done
+  fi
 
   # 6. GOST 前端：对外 40000，链式转发到 warp-svc 本机代理 40001
   log "启动 GOST 前端 :${PUBLIC_PORT} (SOCKS5 + HTTP CONNECT 双协议)"

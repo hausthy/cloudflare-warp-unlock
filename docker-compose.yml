@@ -39,7 +39,8 @@ services:
       # 期望出口地区（验证用）与自定义入口 Endpoint（高级）
       WARP_REGION: "${WARP_REGION:-}"
       WARP_ENDPOINT: "${WARP_ENDPOINT:-}"
-      # 隧道协议：MASQUE（默认）或 WireGuard（老协议栈，内存占用显著更低，小内存 VPS 可选）
+      # 隧道协议：proxy 模式仅支持 MASQUE（官方限制，设 WireGuard 会导致连接无限失败重试）；
+      # 填其他值只会在启动日志里告警并强制回退 MASQUE
       WARP_PROTOCOL: "${WARP_PROTOCOL:-MASQUE}"
       # 看门狗巡检间隔（秒），失联自动重连
       WARP_WATCHDOG_INTERVAL: "${WARP_WATCHDOG_INTERVAL:-60}"

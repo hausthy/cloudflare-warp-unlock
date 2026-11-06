@@ -98,7 +98,7 @@ flowchart TD
 warp-unlock-docker/
 ├── Dockerfile                   # Debian + 官方 cloudflare-warp + GOST 构建（含瘦身清理）
 ├── docker-compose.yml           # 服务编排（cap_add: NET_ADMIN）
-├── .env.example                 # 环境变量模板（推荐生产基线：WireGuard + 3MB 分卷 + warn + 关自动解锁）
+├── .env.example                 # 环境变量模板（推荐生产基线：3MB 分卷 + warn + 关自动解锁）
 ├── .github/workflows/
 │   └── docker-image.yml         # 预构建镜像 CI（多架构 + 每日重建）
 ├── config/                      # 挂载卷：warp-svc 注册状态持久化
@@ -234,7 +234,7 @@ docker build --target runtime -t warp-unlock:debug .
 | `WARP_UNLOCK_ROTATE` | `1` | 检测未通过时是否轮换出口 IP：`1` = 断开重连刷 IP（最多 3 次）；`0` = 仅记录日志不动 IP |
 | `WARP_REGION` | 空 | 期望出口地区（两位代码），非空时巡检校验 `loc=` 是否匹配 |
 | `WARP_ENDPOINT` | 空 | （高级）自定义入口 `IP:PORT`，钉住入口影响落地 colo |
-| `WARP_PROTOCOL` | `MASQUE` | 隧道协议：`MASQUE` / `WireGuard`；WireGuard 内存占用显著更低（小内存 VPS），见「内存优化」节 |
+| `WARP_PROTOCOL` | `MASQUE` | **仅支持 `MASQUE`**（proxy 模式官方限制）。设其他值只告警并强制回退，见「内存优化」节 |
 | `WARP_WATCHDOG_INTERVAL` | `60` | 看门狗巡检间隔（秒），失联自动重连 |
 | `WARP_LOG_LEVEL` | `error` | warp-svc 日志级别：`error/warn/info/debug/trace`。默认 `error` 基本静默——`warn` 层全是容器环境噪音，`info` 每小时上万行；排障时临时改 `debug`/`trace`（全量不过滤），用完改回 |
 | `WARP_LOG_FILE` | `/logs/warp.log` | 日志落盘路径（实际按日滚动为 `warp-YYYY-MM-DD.log`，`warp.log` 为当天软链）；留空 = 不落盘，仅容器日志 |
@@ -278,17 +278,20 @@ compose 已内置资源限制（服务器实测校准）：
 docker stats --no-stream warp-unlock
 ```
 
-### 内存优化：切换 WireGuard 协议（可选）
+### 内存优化：为什么这里没有开关可调
 
-MASQUE 模式下 warp-svc 稳态 ~150MB，大头是 QUIC/HTTP3 协议栈（quiche 缓冲 + tokio 多线程运行时），属官方闭源黑盒、无参数可调。**唯一有效的省内存开关是切回老协议 WireGuard**（`WARP_PROTOCOL=WireGuard`），无 QUIC 栈后内存显著下降，适合小内存 VPS：
+MASQUE 模式下 warp-svc 稳态 ~150MB，大头是 QUIC/HTTP3 协议栈（quiche 缓冲 + tokio 多线程运行时），属官方闭源黑盒，**没有任何参数能压低**。
 
-```env
-WARP_PROTOCOL=WireGuard
+曾经提供过 `WARP_PROTOCOL=WireGuard` 想切老协议省内存，**结论是行不通**，已移除：warp-svc 的 proxy 模式**只支持 MASQUE**（官方硬限制）。设成 WireGuard 时 `warp-cli tunnel protocol set` 会返回成功，但 `connect` 会进入每 5 秒一次的失败重试死循环，隧道永远起不来，日志表现为：
+
+```text
+WARN  actor_connection::controller: Connection failed to start error=InvalidKey("Proxy mode only supports MASQUE")
+ERROR actor_connection::handler: Connection startup error error=InvalidKey("Proxy mode only supports MASQUE")
 ```
 
-取舍：WireGuard 是 Cloudflare 逐步淡出的老协议，且两协议的出口特征/解锁表现可能有差异，追求解锁稳定性就保持默认 MASQUE。切换后需 `docker compose up -d` 重建（注册状态跨协议保留，不占新设备槽位）。启动日志会打印 `隧道协议已切换为 WireGuard`；若报 `不支持切换协议` 说明客户端版本过旧，会自动回退 MASQUE。
+现在脚本会**无条件把协议固化为 MASQUE**（含回写持久化配置，防止旧 `./config` 里残留 WireGuard 继续报错）；误设 `WARP_PROTOCOL=WireGuard` 只会得到一条告警，不会拖死隧道。
 
-对照参考：v1.x（wgcf + wireproxy，用户态 WireGuard）稳态仅 ~20MB——如果 170MB 无法接受且不需要官方客户端特性，master 分支方案仍是内存最优解。
+真要把内存压到几十 MB，只能换架构——即 master 分支的 v1.x 方案（wgcf + wireproxy 用户态 WireGuard，稳态 ~20MB，代价是不再使用官方客户端、MASQUE 指纹优势消失）。这也是「proxy 模式 + 官方客户端」这套架构的固有成本，512m 的 mem_limit 就是按 ~170MB 基线留的余量。
 
 ### 出口协议族说明（默认双栈）
 
