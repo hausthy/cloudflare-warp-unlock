@@ -214,14 +214,24 @@ filter_by_level() {
   }
 }
 # ------------------------------------------------------------------------------
-# 日志写入器：按日期滚动（warp-YYYY-MM-DD.log）+ 保留最近 N 天
-#   - 不能用 tee：tee 持有固定文件 fd，跨天无法切换目标文件，只能原地截断
-#   - 这里自管 fd：每 30 秒（按行触发）检查一次系统日期，跨天则关闭旧 fd、
-#     打开新一天的文件、重建 warp.log 软链、清理超期文件
-#   - warp.log 始终指向当天文件，便于 tail -F logs/warp.log 跟踪
+# 日志写入器：按日期滚动 + 同日按大小分卷 + 保留最近 N 天
+#
+# 文件命名（同一天内，越靠前越新）：
+#   warp-2026-11-06.log      ← 正在写入的最新文件
+#   warp-2026-11-06-01.log   ← 上一卷
+#   warp-2026-11-06-02.log   ← 更早一卷 …
+#
+#   - 不能用 tee：tee 持有固定文件 fd，无法切换目标文件
+#   - 自管 fd：每 30 秒（按行触发）检查一次系统日期，跨天切换文件并清理超期
+#   - 当前文件达到 WARP_LOG_MAX_SIZE_MB（默认 10，0=不限制）时"卷动"：
+#       旧卷号整体 +1（-02→-03…），warp-DATE.log → -01，然后新建 warp-DATE.log
+#   - 卷动失败（如只读挂载/权限异常）时退化为原地截断，仅保留最后 2000 行，避免文件无限膨胀
 # ------------------------------------------------------------------------------
 WARP_LOG_DIR="$(dirname "$WARP_LOG_FILE")"
 WARP_LOG_KEEP_DAYS="${WARP_LOG_KEEP_DAYS:-3}"
+WARP_LOG_MAX_SIZE_MB="${WARP_LOG_MAX_SIZE_MB:-10}"
+[[ "$WARP_LOG_MAX_SIZE_MB" =~ ^[0-9]+$ ]] || WARP_LOG_MAX_SIZE_MB=10
+LOG_MAX_BYTES=$(( WARP_LOG_MAX_SIZE_MB * 1024 * 1024 ))
 
 prune_old_logs() {
   [[ "$WARP_LOG_KEEP_DAYS" =~ ^[0-9]+$ ]] || return 0
@@ -229,16 +239,43 @@ prune_old_logs() {
   local cutoff f d
   # 保留天数含当天：保留 3 天 = 今天 + 前 2 天
   cutoff="$(date -d "-$((WARP_LOG_KEEP_DAYS - 1)) days" +%F 2>/dev/null)" || return 0
-  for f in "$WARP_LOG_DIR"/warp-????-??-??.log; do
+  # 匹配 warp-YYYY-MM-DD.log 与 warp-YYYY-MM-DD-NN.log（卷文件）
+  for f in "$WARP_LOG_DIR"/warp-????-??-??*.log; do
     [[ -e "$f" ]] || continue
-    d="${f##*/warp-}"; d="${d%.log}"
+    d="${f##*/warp-}"; d="${d:0:10}"      # 取前 10 位日期，忽略卷号后缀
     [[ "$d" < "$cutoff" ]] && rm -f "$f"
   done
   return 0
 }
 
+# 同日按大小卷动：warp-D.log → warp-D-01.log，已有卷号整体 +1
+rotate_by_size() {
+  local day="$1" dir="$WARP_LOG_DIR" f idx max=0 i a b
+  for f in "$dir"/warp-"$day"-*.log; do
+    [[ -e "$f" ]] || continue
+    idx="${f##*/warp-${day}-}"; idx="${idx%.log}"
+    [[ "$idx" =~ ^[0-9]+$ ]] || continue
+    (( 10#$idx > max )) && max=$((10#$idx))
+  done
+  for (( i = max; i >= 1; i-- )); do
+    printf -v a '%02d' "$i"
+    printf -v b '%02d' "$((i + 1))"
+    [[ -f "$dir/warp-${day}-${a}.log" ]] \
+      && mv -f "$dir/warp-${day}-${a}.log" "$dir/warp-${day}-${b}.log"
+  done
+  mv -f "$dir/warp-${day}.log" "$dir/warp-${day}-01.log"
+}
+
+# 兜底：原地截断（保留最后 2000 行，inode 不变，便于已打开的 fd 继续写入）
+truncate_in_place() {
+  local f="$1"
+  tail -n 2000 "$f" > "${f}.tmp" 2>/dev/null \
+    && cat "${f}.tmp" > "$f" \
+    && rm -f "${f}.tmp"
+}
+
 log_writer() {
-  local line fd="" day="" next_check=0 echo_stdout=1
+  local line fd="" day="" next_check=0 echo_stdout=1 cur_bytes=0 d
   [[ "${WARP_LOG_STDOUT:-1}" == "0" ]] && echo_stdout=0
   mkdir -p "$WARP_LOG_DIR"   # 防御：目录被外部删除时自愈
 
@@ -255,22 +292,37 @@ log_writer() {
   exec {fd}>>"${WARP_LOG_DIR}/warp-${day}.log"
   ln -sfn "warp-${day}.log" "${WARP_LOG_DIR}/warp.log"
   prune_old_logs
+  cur_bytes="$(stat -c%s "${WARP_LOG_DIR}/warp-${day}.log" 2>/dev/null || echo 0)"
   next_check=$((SECONDS + 30))
 
   while IFS= read -r line; do
     if (( SECONDS >= next_check )); then
       next_check=$((SECONDS + 30))
-      local d; d="$(date +%F)"
+      d="$(date +%F)"
       if [[ "$d" != "$day" ]]; then
         day="$d"
         exec {fd}>&-
         exec {fd}>>"${WARP_LOG_DIR}/warp-${day}.log"
         ln -sfn "warp-${day}.log" "${WARP_LOG_DIR}/warp.log"
         prune_old_logs
+        cur_bytes="$(stat -c%s "${WARP_LOG_DIR}/warp-${day}.log" 2>/dev/null || echo 0)"
       fi
     fi
+
     printf '%s\n' "$line" >&"$fd"
+    # 按字符数估算（UTF-8 多字节会略低估），阈值只需近似
+    cur_bytes=$(( cur_bytes + ${#line} + 1 ))
     (( echo_stdout )) && printf '%s\n' "$line"
+
+    # 达到大小阈值：卷动到 -NN；失败则原地截断兜底
+    if (( LOG_MAX_BYTES > 0 && cur_bytes >= LOG_MAX_BYTES )); then
+      exec {fd}>&-
+      if ! rotate_by_size "$day"; then
+        truncate_in_place "${WARP_LOG_DIR}/warp-${day}.log"
+      fi
+      cur_bytes="$(stat -c%s "${WARP_LOG_DIR}/warp-${day}.log" 2>/dev/null || echo 0)"
+      exec {fd}>>"${WARP_LOG_DIR}/warp-${day}.log"
+    fi
   done
 
   exec {fd}>&-
@@ -280,11 +332,11 @@ if [[ -n "$WARP_LOG_FILE" ]]; then
   mkdir -p "$WARP_LOG_DIR"
   if [[ "${WARP_LOG_STDOUT:-1}" != "0" ]]; then
     # 默认双路：过滤后日志按日滚动落盘 + 同步输出到容器日志（compose logging 1MB×3 兜底）
-    log "warp-svc 日志：级别 ${WARP_LOG_LEVEL:-error}，按日滚动 ${WARP_LOG_DIR}/warp-YYYY-MM-DD.log（保留 ${WARP_LOG_KEEP_DAYS} 天），同步输出到容器日志"
+    log "warp-svc 日志：级别 ${WARP_LOG_LEVEL:-error}，按日滚动 ${WARP_LOG_DIR}/warp-YYYY-MM-DD.log（单文件上限 ${WARP_LOG_MAX_SIZE_MB}MB 自动分卷，保留 ${WARP_LOG_KEEP_DAYS} 天），同步输出到容器日志"
     exec warp-svc > >(filter_by_level | log_writer) 2>&1
   fi
   # WARP_LOG_STDOUT=0 时仅落盘，docker logs 只保留本脚本的生命周期日志
-  log "warp-svc 日志：级别 ${WARP_LOG_LEVEL:-error}，按日滚动 ${WARP_LOG_DIR}/warp-YYYY-MM-DD.log（保留 ${WARP_LOG_KEEP_DAYS} 天），容器日志不输出"
+  log "warp-svc 日志：级别 ${WARP_LOG_LEVEL:-error}，按日滚动 ${WARP_LOG_DIR}/warp-YYYY-MM-DD.log（单文件上限 ${WARP_LOG_MAX_SIZE_MB}MB 自动分卷，保留 ${WARP_LOG_KEEP_DAYS} 天），容器日志不输出"
   exec warp-svc > >(filter_by_level | log_writer) 2>&1
 fi
 exec warp-svc > >(filter_by_level) 2>&1

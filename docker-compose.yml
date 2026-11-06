@@ -49,8 +49,11 @@ services:
       # warp-svc 日志落盘目录前缀；实际文件按日滚动为 warp-YYYY-MM-DD.log，
       # warp.log 为指向当天文件的软链（tail -F logs/warp.log 可跨天跟踪）；留空 = 不落盘
       WARP_LOG_FILE: "${WARP_LOG_FILE:-/logs/warp.log}"
-      # 日志保留天数（按日期文件清理），默认 3 = 今天 + 前 2 天
+      # 日志保留天数（按日期文件清理，卷文件一并清理），默认 3 = 今天 + 前 2 天
       WARP_LOG_KEEP_DAYS: "${WARP_LOG_KEEP_DAYS:-3}"
+      # 单文件大小上限（MB）：超过则同日分卷（warp-DATE.log → -01，最新始终是 warp-DATE.log）；
+      # 0 = 不限制。分卷失败时退化为原地截断（保留最后 2000 行）
+      WARP_LOG_MAX_SIZE_MB: "${WARP_LOG_MAX_SIZE_MB:-10}"
       # warp-svc 日志是否同步输出到容器日志：默认 1 = 落盘 + docker logs 双路；
       # 设 0 则仅落盘文件，docker logs 只保留 entrypoint 生命周期日志
       WARP_LOG_STDOUT: "${WARP_LOG_STDOUT:-1}"

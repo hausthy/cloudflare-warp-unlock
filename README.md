@@ -236,7 +236,8 @@ docker build --target runtime -t warp-unlock:debug .
 | `WARP_WATCHDOG_INTERVAL` | `60` | 看门狗巡检间隔（秒），失联自动重连 |
 | `WARP_LOG_LEVEL` | `error` | warp-svc 日志级别：`error/warn/info/debug/trace`。默认 `error` 基本静默——`warn` 层全是容器环境噪音，`info` 每小时上万行；排障时临时改 `debug`/`trace`（全量不过滤），用完改回 |
 | `WARP_LOG_FILE` | `/logs/warp.log` | 日志落盘路径（实际按日滚动为 `warp-YYYY-MM-DD.log`，`warp.log` 为当天软链）；留空 = 不落盘，仅容器日志 |
-| `WARP_LOG_KEEP_DAYS` | `3` | 按日期滚动保留天数（今天 + 前 N-1 天），跨天自动清理更早文件 |
+| `WARP_LOG_KEEP_DAYS` | `3` | 按日期滚动保留天数（今天 + 前 N-1 天），跨天自动清理更早文件（含卷文件） |
+| `WARP_LOG_MAX_SIZE_MB` | `10` | 单文件大小上限（MB），超过则同日分卷 `warp-DATE-NN.log`，最新始终为 `warp-DATE.log`；`0` = 不限制 |
 | `WARP_LOG_STDOUT` | `1` | `1` = 落盘 + 容器日志双路；`0` = 仅落盘 |
 | `LOG_NOISE_KEYWORDS` | 空 | 追加日志噪音拦截关键字（ERE 正则，`\|` 分隔），叠加在内置白名单之上，所有级别（除 debug/trace）生效。例：`my_noisy_span\|DeviceWithNoLimits` |
 | `GOST_VERSION` | `2.11.5` | GOST 构建版本 |
@@ -245,13 +246,15 @@ docker build --target runtime -t warp-unlock:debug .
 
 | 文件（宿主机 `./logs/`） | 内容 |
 | :--- | :--- |
-| `warp-YYYY-MM-DD.log` | warp-svc 主日志，**按日期滚动**（默认 `error` 级别，静默即健康） |
-| `warp.log` | 指向当天日志文件的软链，跟踪用 `tail -F logs/warp.log`（`-F` 才能跨天自动切换） |
+| `warp-YYYY-MM-DD.log` | warp-svc 主日志，**按日期滚动**，且始终是当天最新文件（默认 `error` 级别，静默即健康） |
+| `warp-YYYY-MM-DD-01.log` / `-02.log` … | 同日超大小上限后的历史卷，编号越大越早（`-01` 是上一卷） |
+| `warp.log` | 指向当天最新日志文件的软链，跟踪用 `tail -F logs/warp.log`（`-F` 才能跨天/跨卷自动切换） |
 | `gost.log` | GOST 前端日志（gost 仅输出启动/异常，增长极慢） |
 | `unlock.log` | 解锁巡检与刷 IP 记录（每次检测一行） |
 
-- **滚动与保留**：warp-svc 日志按自然日切分为 `warp-YYYY-MM-DD.log`，`WARP_LOG_KEEP_DAYS`（默认 `3`）= 今天 + 前 2 天，跨天时自动删除更早的日期文件。日志量大时（如 `WARP_LOG_LEVEL=debug`）也不会无限膨胀
-- **为什么不用 logrotate**：镜像为 scratch 压平版，不含 cron/logrotate；滚动由 entrypoint 内的写入器自管文件描述符实现（`tee` 持有固定 fd，无法跨天切换文件）
+- **两级滚动**：①按自然日切分 `warp-YYYY-MM-DD.log`；②单文件达到 `WARP_LOG_MAX_SIZE_MB`（默认 `10`，`0`=不限）时同日分卷——`warp-DATE.log → warp-DATE-01.log`，已有卷号整体 +1，最新文件始终是 `warp-DATE.log`。分卷失败（只读挂载等）时退化为原地截断，仅保留最后 2000 行
+- **保留策略**：`WARP_LOG_KEEP_DAYS`（默认 `3`）= 今天 + 前 2 天，跨天时按日期前缀清理更早的日期文件（卷文件一并删除）。日志量大时（如 `WARP_LOG_LEVEL=debug`）也不会无限膨胀
+- **为什么不用 logrotate**：镜像为 scratch 压平版，不含 cron/logrotate；滚动由 entrypoint 内的写入器自管文件描述符实现（`tee` 持有固定 fd，无法切换文件）
 - **连接状态看哪里**：注册/License 绑定/隧道连通/看门狗重连/解锁巡检均由 entrypoint 直接输出到 `docker logs`，不依赖 warp-svc 低级别日志，因此 `error` 默认档不丢关键信息
 - **ANSI 剥离**：warp-svc 输出自带颜色转义码（且不完全遵循 `RUST_LOG`），entrypoint 先剥离 ANSI 再按级别行过滤，落盘为纯文本
 - **内置噪音白名单**：容器环境已验证无害的告警（fwmark 重装提示、IPC broken pipe、UDP 端口回退、SMBios 读取失败、无 ZT 注册的遥测丢弃、网络事件转储等）已默认拦截；如仍有刺眼输出，用 `LOG_NOISE_KEYWORDS` 追加即可，无需改代码
