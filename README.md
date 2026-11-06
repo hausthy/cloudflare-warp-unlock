@@ -190,15 +190,18 @@ docker images | grep cloudflare-warp-unlock
 
 ### 镜像体积与构建参数
 
-最终镜像 **~150MB**（默认开启 UPX，gost v3.3.3）/ **~200MB**（`UPX_WARP_SVC=0` 回退不压缩），从初版 330MB 优化而来。
-瘦身手段：UPX 压缩三件套（gost/warp-cli/warp-svc）、静态 curl（SHA256 强校验）、
-清除 apt/perl/gconv 冗余组件、scratch 压平镜像层。
+最终镜像 **~95MB**（默认开启 UPX，gost v3.3.3）/ **~150MB**（`UPX_WARP_SVC=0` 回退不压缩），相比初版 330MB 与早期 150MB 大幅瘦身。
+瘦身手段：
+1. **剔除官方 deb 的 GUI 垃圾**：官方 deb 包含桌面托盘（`warp-taskbar`）与 Flutter Linux GTK 运行时资源（`/usr/lib/warp`，~42MB），提取时彻底剔除，仅保留后台服务核心；
+2. **极速构建闭包提取**：构建期仅提取 `warp-svc` 动态依赖，跳过官方 deb 对 WebKitGTK / GTK3 等 ~400MB 桌面库的下载与解压；
+3. **多架构清理**：适配 `*-linux-gnu` 通配符，修复 ARM64 下 `gconv` / `perl` 清理失效的问题；
+4. **二进制与层优化**：UPX 压缩三件套（gost/warp-cli/warp-svc）、静态 curl（SHA256 强校验）、scratch 物理压平合并单层。
 
 gost 从 2.11.5 升到 3.3.3 带来 **+10.7MB**（实测：v3 原始 49.87MB → UPX 后 15.19MB，v2 为 13MB → 4.5MB），换来的是 SOCKS5 链式转发保留目标地址类型（见下节）。
 
 | 构建参数 | 默认 | 说明 |
 | :--- | :--- | :--- |
-| `UPX_WARP_SVC` | `1` | UPX 压缩 warp-svc 守护进程（省 ~50MB）。若守护进程出现异常，改回 `0` 重建即回退 |
+| `UPX_WARP_SVC` | `1` | UPX 压缩 warp-svc 守护进程（省 ~55MB）。若守护进程出现异常，改回 `0` 重建即回退 |
 | `GOST_VERSION` | `3.3.3` | GOST 版本（v3 修复 IPv6 字面量转发，见工具章节说明） |
 | `CURL_STATIC_VERSION` | `8.23.0-1` | 静态 curl 版本（stunnel/static-curl，构建期 SHA256 强校验） |
 | `UPX_VERSION` | `4.2.4` | UPX 版本 |
@@ -214,13 +217,11 @@ docker build -t cloudflare-warp-unlock:test .
 # 回退不压缩版本（守护进程异常时）
 docker build --build-arg UPX_WARP_SVC=0 -t cloudflare-warp-unlock:test .
 
-# 排障专用：构建带完整 shell 的未压平中间层镜像（scratch 终版无 apt/dpkg）
-docker build --target runtime -t cloudflare-warp-unlock:debug .
+# 容器内调试：镜像完整保留 bash 与常用工具，支持直接 exec
+docker compose exec cloudflare-warp-unlock bash
 ```
 
-> 说明：官方客户端 MASQUE 架构的体积硬成本 = debian-slim 基座（glibc）约 65MB +
-> warp-svc 自带私有库 `/usr/lib/warp` 约 42MB，这两块无法再压缩；
-> seiry/docker-warp-proxy 的 50MB 是 wgcf 静态单文件架构，不含上述组件。
+> 说明：官方客户端 MASQUE 架构已剥离无用的 `/usr/lib/warp` 桌面组件（省 42MB），当前 ~95MB 的体积基本包含 Debian 最小运行时闭包与官方 Rust 守护进程，实现了体积与官方稳定性的最佳平衡。
 
 ---
 
