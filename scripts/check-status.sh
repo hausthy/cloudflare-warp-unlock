@@ -62,7 +62,11 @@ if [[ -x /app/unlock-check.sh ]]; then
   if UNLOCK_LOG=/dev/null /app/unlock-check.sh; then
     echo ">>> 全部检测通过"
   else
-    echo ">>> 存在未通过项（巡检循环会自动轮换出口 IP）"
+    if [[ "${WARP_AUTO_UNLOCK:-1}" == "1" ]]; then
+      echo ">>> 存在未通过项（自动巡检已开启，未通过会自动轮换出口 IP）"
+    else
+      echo ">>> 存在未通过项（自动巡检已关闭，不会自动换 IP）"
+    fi
   fi
 fi
 
