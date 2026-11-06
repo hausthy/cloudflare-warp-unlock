@@ -110,7 +110,7 @@ warp-unlock-docker/
 │   ├── unlock-check.sh          # 流媒体解锁检测 + 出口地区验证
 │   └── check-status.sh          # 容器一键状态诊断脚本
 └── tools/
-    └── warp-ping.sh             # 宿主机链路耗时与 IPv4/IPv6 握手分析工具
+    └── warp-ping.sh             # 宿主机链路耗时与 IPv4/IPv6 握手分析工具（不打包进镜像）
 ```
 
 ---
@@ -331,6 +331,22 @@ docker compose exec warp-unlock /app/check-status.sh
 # 宿主机链路分析
 ./tools/warp-ping.sh chatgpt.com
 ```
+
+### 宿主机工具：`tools/warp-ping.sh`
+
+在宿主机直接运行（**不打包进镜像**，无需进容器），输出各阶段耗时并判定实际走 IPv4 还是 IPv6：
+
+```bash
+./tools/warp-ping.sh chatgpt.com                  # 默认代理 socks5://127.0.0.1:40000
+./tools/warp-ping.sh https://netflix.com
+./tools/warp-ping.sh -p socks5://127.0.0.1:40000 netflix.com   # 指定代理
+PROXY=socks5://10.0.0.5:40000 ./tools/warp-ping.sh netflix.com # 环境变量方式
+./tools/warp-ping.sh -h                           # 帮助
+```
+
+**代理优先级**：`-p/--proxy` > 环境变量 `PROXY` > 默认 `socks5://127.0.0.1:40000`（容器映射端口）。
+
+协议族判定原理：必须使用 `socks5://`（不带 `h`），由 curl 本地解析域名后向代理发起精确的 A/AAAA 请求，再从 SOCKS5 握手行（`SOCKS5 connect to IPv4/IPv6 x.x.x.x`）判断实际走的协议族；若用 `socks5h://`，解析在代理侧完成，无法得知协议族。可用于排查出口协议族漂移问题（见「出口协议族说明」节）。
 
 ---
 

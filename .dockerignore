@@ -1,0 +1,18 @@
+# 构建上下文裁剪：镜像只需 scripts/，其余一律排除，避免敏感文件与无关内容进入 context
+.git
+.github
+.workbuddy
+.vscode
+.idea
+
+# 宿主机侧工具与文档（不打包进镜像）
+tools/
+*.md
+
+# 运行时数据与密钥
+config/
+data/
+logs/
+.env
+.env.*
+!.env.example
