@@ -6,7 +6,7 @@ services:
       context: .
       args:
         GOST_VERSION: "${GOST_VERSION:-3.3.3}"
-        # 1 = UPX 压缩 warp-svc（默认，镜像 ~90MB，含 gost v3）；守护进程异常时改 0 回退
+        # 1 = UPX 压缩 warp-svc（默认，镜像 ~100MB，含 gost v3）；守护进程异常时改 0 回退
         UPX_WARP_SVC: "${UPX_WARP_SVC:-1}"
     restart: unless-stopped
     init: true
