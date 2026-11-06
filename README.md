@@ -356,8 +356,18 @@ docker compose exec cloudflare-warp-unlock /app/check-status.sh
 PROXY=socks5://10.0.0.5:40000 ./tools/warp-ping.sh netflix.com  # 环境变量方式
 PROXY_USER=u PROXY_PASS=p ./tools/warp-ping.sh -p 1.2.3.4:40000 netflix.com  # 带认证的代理
 ./tools/warp-ping.sh -u u:p -p 1.2.3.4:40000 netflix.com        # 认证也可命令行传入
+./tools/warp-ping.sh -p 127.0.0.1:40000 -4 netflix.com          # 只请求 A 记录（目标走 v4）
+./tools/warp-ping.sh -p 127.0.0.1:40000 -6 netflix.com          # 只请求 AAAA 记录（目标走 v6）
 ./tools/warp-ping.sh -h                           # 帮助
 ```
+
+**结果怎么读**（`-4/-6` 限定的是**目标地址族**，用 `socks5://` 时由 curl 本地解析，才能真正区分「v6 目标不通」还是「隧道整体不通」）：
+
+| 输出 | 含义 |
+| :--- | :--- |
+| `连接结论: ✅ 已连通` + 非 000 状态码 | 正常；`405` 只是站点拒绝 HEAD，属正常 |
+| `连接结论: ❌ 未连通`（HTTP 000） | **失败**，会打印 curl 退出码与错误行（7=连不上、56=被重置、97=SOCKS5 拒绝），耗时再短也无参考价值 |
+| `底层实锤: ⚠️ 请求目标是【IPv6】…但隧道未建立` | 握手行只代表 curl 请求了该族，**不代表连通**；需结合上面的错误行判断 |
 
 **代理优先级**：`-p/--proxy` > 环境变量 `PROXY` > 默认 `socks5://127.0.0.1:40000`（容器映射端口）。地址可省略协议前缀（`host:port` 自动补 `socks5://`）。
 
