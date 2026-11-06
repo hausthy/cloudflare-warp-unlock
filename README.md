@@ -98,7 +98,7 @@ flowchart TD
 warp-unlock-docker/
 ├── Dockerfile                   # Debian + 官方 cloudflare-warp + GOST 构建（含瘦身清理）
 ├── docker-compose.yml           # 服务编排（cap_add: NET_ADMIN）
-├── .env.example                 # 环境变量配置模板
+├── .env.example                 # 环境变量模板（推荐生产基线：WireGuard + 3MB 分卷 + warn + 关自动解锁）
 ├── .github/workflows/
 │   └── docker-image.yml         # 预构建镜像 CI（多架构 + 每日重建）
 ├── config/                      # 挂载卷：warp-svc 注册状态持久化
@@ -143,10 +143,12 @@ docker run -d --name warp-unlock \
 ### 方案 B：本地构建 + docker compose
 
 ```bash
-cp .env.example .env      # 按需修改（WARP_LICENSE、认证等）
+cp .env.example .env      # 模板即推荐生产配置（低内存/精简日志/关自动解锁），按需改 WARP_LICENSE、认证
 docker compose up -d --build
 docker compose logs -f warp-unlock
 ```
+
+> 想恢复官方默认行为（MASQUE、`error` 日志、开启自动解锁）：删掉 `.env` 或把相关行注释掉即可回落到 compose 内置默认值。
 
 首次启动时容器会自动：
 1. 拉起 `warp-svc` 并注册免费 WARP 账户（状态持久化在 `./config`，重启不重复注册）；
