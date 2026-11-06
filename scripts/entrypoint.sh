@@ -135,16 +135,8 @@ fi
        -F "socks5://127.0.0.1:${WARP_PROXY_PORT}" >> /logs/gost.log 2>&1 &
 
   # 7. 看门狗：定期验证隧道连通性，失联自动重连
+  #    （日志滚动由 log_writer 按日期处理，这里不再做 10MB 原地截断）
   while true; do
-    # 日志文件超过 10MB 时轮转，仅保留最近 2000 行。
-    # 注意必须原地截断重写（cat tmp > file），不能用 mv——tee 持有原 inode 的
-    # append fd，mv 换 inode 后日志会写进已删除的旧文件而丢失
-    if [[ -n "$WARP_LOG_FILE" && -f "$WARP_LOG_FILE" ]] \
-       && (( $(stat -c%s "$WARP_LOG_FILE" 2>/dev/null || echo 0) > 10485760 )); then
-      tail -n 2000 "$WARP_LOG_FILE" > "${WARP_LOG_FILE}.tmp" \
-        && cat "${WARP_LOG_FILE}.tmp" > "$WARP_LOG_FILE" \
-        && rm -f "${WARP_LOG_FILE}.tmp"
-    fi
     sleep "${WARP_WATCHDOG_INTERVAL:-60}"
     if ! curl -ksm8 -x "socks5h://127.0.0.1:${WARP_PROXY_PORT}" \
          https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep -Eq '^warp=(on|plus)$'; then
@@ -206,29 +198,93 @@ filter_by_level() {
     case "${WARP_LOG_LEVEL:-error}" in
       debug|trace) cat ;;
       warn|error)
+        # --line-buffered：管道场景下逐行输出，避免 4KB 缓冲导致日志延迟可见
         if [[ -n "$extra" ]]; then
-          grep -Ev "${builtin_noise}|${extra}"
+          grep --line-buffered -Ev "${builtin_noise}|${extra}"
         else
-          grep -Ev "$builtin_noise"
+          grep --line-buffered -Ev "$builtin_noise"
         fi ;;
       *)
         if [[ -n "$extra" ]]; then
-          grep -Ev " DEBUG |${extra}"
+          grep --line-buffered -Ev " DEBUG |${extra}"
         else
-          grep -v ' DEBUG '
+          grep --line-buffered -v ' DEBUG '
         fi ;;
     esac
   }
 }
+# ------------------------------------------------------------------------------
+# 日志写入器：按日期滚动（warp-YYYY-MM-DD.log）+ 保留最近 N 天
+#   - 不能用 tee：tee 持有固定文件 fd，跨天无法切换目标文件，只能原地截断
+#   - 这里自管 fd：每 30 秒（按行触发）检查一次系统日期，跨天则关闭旧 fd、
+#     打开新一天的文件、重建 warp.log 软链、清理超期文件
+#   - warp.log 始终指向当天文件，便于 tail -F logs/warp.log 跟踪
+# ------------------------------------------------------------------------------
+WARP_LOG_DIR="$(dirname "$WARP_LOG_FILE")"
+WARP_LOG_KEEP_DAYS="${WARP_LOG_KEEP_DAYS:-3}"
+
+prune_old_logs() {
+  [[ "$WARP_LOG_KEEP_DAYS" =~ ^[0-9]+$ ]] || return 0
+  (( WARP_LOG_KEEP_DAYS > 0 )) || return 0
+  local cutoff f d
+  # 保留天数含当天：保留 3 天 = 今天 + 前 2 天
+  cutoff="$(date -d "-$((WARP_LOG_KEEP_DAYS - 1)) days" +%F 2>/dev/null)" || return 0
+  for f in "$WARP_LOG_DIR"/warp-????-??-??.log; do
+    [[ -e "$f" ]] || continue
+    d="${f##*/warp-}"; d="${d%.log}"
+    [[ "$d" < "$cutoff" ]] && rm -f "$f"
+  done
+  return 0
+}
+
+log_writer() {
+  local line fd="" day="" next_check=0 echo_stdout=1
+  [[ "${WARP_LOG_STDOUT:-1}" == "0" ]] && echo_stdout=0
+  mkdir -p "$WARP_LOG_DIR"   # 防御：目录被外部删除时自愈
+
+  # 兼容旧版本：此前 warp.log 是普通文件，新建软链会 -f 覆盖它。
+  # 先按该文件的修改日期归档为 warp-YYYY-MM-DD.log，保留历史内容。
+  if [[ -f "${WARP_LOG_DIR}/warp.log" && ! -L "${WARP_LOG_DIR}/warp.log" ]]; then
+    mv -f "${WARP_LOG_DIR}/warp.log" \
+          "${WARP_LOG_DIR}/warp-$(date -r "${WARP_LOG_DIR}/warp.log" +%F 2>/dev/null || date +%F).log" \
+      2>/dev/null || rm -f "${WARP_LOG_DIR}/warp.log"
+  fi
+
+  # 启动即建当天文件（即使默认 error 级别长时间无输出，文件与软链也存在）
+  day="$(date +%F)"
+  exec {fd}>>"${WARP_LOG_DIR}/warp-${day}.log"
+  ln -sfn "warp-${day}.log" "${WARP_LOG_DIR}/warp.log"
+  prune_old_logs
+  next_check=$((SECONDS + 30))
+
+  while IFS= read -r line; do
+    if (( SECONDS >= next_check )); then
+      next_check=$((SECONDS + 30))
+      local d; d="$(date +%F)"
+      if [[ "$d" != "$day" ]]; then
+        day="$d"
+        exec {fd}>&-
+        exec {fd}>>"${WARP_LOG_DIR}/warp-${day}.log"
+        ln -sfn "warp-${day}.log" "${WARP_LOG_DIR}/warp.log"
+        prune_old_logs
+      fi
+    fi
+    printf '%s\n' "$line" >&"$fd"
+    (( echo_stdout )) && printf '%s\n' "$line"
+  done
+
+  exec {fd}>&-
+}
+
 if [[ -n "$WARP_LOG_FILE" ]]; then
-  mkdir -p "$(dirname "$WARP_LOG_FILE")"
+  mkdir -p "$WARP_LOG_DIR"
   if [[ "${WARP_LOG_STDOUT:-1}" != "0" ]]; then
-    # 默认双路：过滤后日志落盘 + 同步输出到容器日志（compose logging 1MB×3 轮转兜底）
-    log "warp-svc 日志：级别 ${WARP_LOG_LEVEL:-error}，落盘 ${WARP_LOG_FILE}，同步输出到容器日志"
-    exec warp-svc > >(filter_by_level | tee -a "$WARP_LOG_FILE") 2>&1
+    # 默认双路：过滤后日志按日滚动落盘 + 同步输出到容器日志（compose logging 1MB×3 兜底）
+    log "warp-svc 日志：级别 ${WARP_LOG_LEVEL:-error}，按日滚动 ${WARP_LOG_DIR}/warp-YYYY-MM-DD.log（保留 ${WARP_LOG_KEEP_DAYS} 天），同步输出到容器日志"
+    exec warp-svc > >(filter_by_level | log_writer) 2>&1
   fi
   # WARP_LOG_STDOUT=0 时仅落盘，docker logs 只保留本脚本的生命周期日志
-  log "warp-svc 日志：级别 ${WARP_LOG_LEVEL:-error}，仅落盘 ${WARP_LOG_FILE}（容器日志不输出，查看：tail -f logs/warp.log）"
-  exec warp-svc > >(filter_by_level >> "$WARP_LOG_FILE") 2>&1
+  log "warp-svc 日志：级别 ${WARP_LOG_LEVEL:-error}，按日滚动 ${WARP_LOG_DIR}/warp-YYYY-MM-DD.log（保留 ${WARP_LOG_KEEP_DAYS} 天），容器日志不输出"
+  exec warp-svc > >(filter_by_level | log_writer) 2>&1
 fi
 exec warp-svc > >(filter_by_level) 2>&1

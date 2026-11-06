@@ -46,8 +46,11 @@ services:
       # warp-svc 日志级别（error/warn/info/debug/trace），默认 error 基本静默；
       # warn 层全是容器环境噪音，info/debug 仅排障用（量大）
       WARP_LOG_LEVEL: "${WARP_LOG_LEVEL:-error}"
-      # warp-svc 日志落盘文件（./logs/warp.log）；留空 = 仅输出 docker logs
+      # warp-svc 日志落盘目录前缀；实际文件按日滚动为 warp-YYYY-MM-DD.log，
+      # warp.log 为指向当天文件的软链（tail -F logs/warp.log 可跨天跟踪）；留空 = 不落盘
       WARP_LOG_FILE: "${WARP_LOG_FILE:-/logs/warp.log}"
+      # 日志保留天数（按日期文件清理），默认 3 = 今天 + 前 2 天
+      WARP_LOG_KEEP_DAYS: "${WARP_LOG_KEEP_DAYS:-3}"
       # warp-svc 日志是否同步输出到容器日志：默认 1 = 落盘 + docker logs 双路；
       # 设 0 则仅落盘文件，docker logs 只保留 entrypoint 生命周期日志
       WARP_LOG_STDOUT: "${WARP_LOG_STDOUT:-1}"
