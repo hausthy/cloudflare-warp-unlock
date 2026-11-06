@@ -183,7 +183,7 @@ docker compose exec cloudflare-warp-unlock /app/check-status.sh
 tail -f logs/unlock.log
 
 # 8. 查看镜像体积（验证分层瘦身效果）
-docker images | grep warp-unlock
+docker images | grep cloudflare-warp-unlock
 ```
 
 > 测试完成后清理：`docker compose down`；彻底重来（清账户）：`docker compose down && rm -rf config/*`
@@ -207,13 +207,13 @@ docker images | grep warp-unlock
 docker compose up -d --build
 
 # 或 docker build 直接指定（不加 --build-arg 亦默认开启）
-docker build -t warp-unlock:test .
+docker build -t cloudflare-warp-unlock:test .
 
 # 回退不压缩版本（守护进程异常时）
-docker build --build-arg UPX_WARP_SVC=0 -t warp-unlock:test .
+docker build --build-arg UPX_WARP_SVC=0 -t cloudflare-warp-unlock:test .
 
 # 排障专用：构建带完整 shell 的未压平中间层镜像（scratch 终版无 apt/dpkg）
-docker build --target runtime -t warp-unlock:debug .
+docker build --target runtime -t cloudflare-warp-unlock:debug .
 ```
 
 > 说明：官方客户端 MASQUE 架构的体积硬成本 = debian-slim 基座（glibc）约 65MB +

@@ -28,7 +28,7 @@
 ```text
 [宿主机] 应用 ──► 127.0.0.1:40000
                      │
-[warp-unlock 容器（最小特权）]
+[cloudflare-warp-unlock 容器（最小特权）]
   GOST 前端 (:40000, auto 协议 + 可选认证)
     └──► warp-svc proxy 模式 (:40001)
            └──► MASQUE (QUIC/HTTP3) ──► Cloudflare 骨干网
@@ -55,7 +55,7 @@
 
 ```bash
 docker run -d \
-  --name warp-unlock \
+  --name cloudflare-warp-unlock \
   --restart unless-stopped \
   --cap-add NET_ADMIN \
   -p 127.0.0.1:40000:40000 \
@@ -67,8 +67,8 @@ docker run -d \
 
 ```yaml
 services:
-  warp-unlock:
-    container_name: warp-unlock
+  cloudflare-warp-unlock:
+    container_name: cloudflare-warp-unlock
     image: hausthy/cloudflare-warp-unlock:latest
     restart: unless-stopped
     init: true
@@ -121,7 +121,7 @@ curl -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | gre
 curl -x http://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep warp
 
 # 容器一键诊断
-docker compose exec warp-unlock /app/check-status.sh
+docker compose exec cloudflare-warp-unlock /app/check-status.sh
 ```
 
 ---
