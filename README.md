@@ -352,12 +352,16 @@ docker compose exec cloudflare-warp-unlock /app/check-status.sh
 ```bash
 ./tools/warp-ping.sh chatgpt.com                  # 默认代理 socks5://127.0.0.1:40000
 ./tools/warp-ping.sh https://netflix.com
-./tools/warp-ping.sh -p socks5://127.0.0.1:40000 netflix.com   # 指定代理
-PROXY=socks5://10.0.0.5:40000 ./tools/warp-ping.sh netflix.com # 环境变量方式
+./tools/warp-ping.sh -p 10.0.0.5:40000 netflix.com              # 指定代理（可省略 socks5://）
+PROXY=socks5://10.0.0.5:40000 ./tools/warp-ping.sh netflix.com  # 环境变量方式
+PROXY_USER=u PROXY_PASS=p ./tools/warp-ping.sh -p 1.2.3.4:40000 netflix.com  # 带认证的代理
+./tools/warp-ping.sh -u u:p -p 1.2.3.4:40000 netflix.com        # 认证也可命令行传入
 ./tools/warp-ping.sh -h                           # 帮助
 ```
 
-**代理优先级**：`-p/--proxy` > 环境变量 `PROXY` > 默认 `socks5://127.0.0.1:40000`（容器映射端口）。
+**代理优先级**：`-p/--proxy` > 环境变量 `PROXY` > 默认 `socks5://127.0.0.1:40000`（容器映射端口）。地址可省略协议前缀（`host:port` 自动补 `socks5://`）。
+
+**代理认证**：`-u user:pass` > `PROXY_USER`+`PROXY_PASS`（两者同时设置才生效，与容器内同名变量一致）；若 URL 里已写 `user:pass@`，不再额外传认证。注意认证只在代理要求时才需要——compose 默认只监听 `127.0.0.1`，本机测试通常不用。
 
 协议族判定原理：必须使用 `socks5://`（不带 `h`），由 curl 本地解析域名后向代理发起精确的 A/AAAA 请求，再从 SOCKS5 握手行（`SOCKS5 connect to IPv4/IPv6 x.x.x.x`）判断实际走的协议族；若用 `socks5h://`，解析在代理侧完成，无法得知协议族。可用于排查出口协议族漂移问题（见「出口协议族说明」节）。
 
