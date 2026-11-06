@@ -195,9 +195,9 @@ if (( FAILED )); then
   echo "💡 排障：curl -Iv --proxy ${PROXY} ${TARGET} 看完整过程；"
   echo "   容器内 /app/check-status.sh 看隧道状态与双栈出口"
   if [[ "$PROXY" == socks5://* ]] && { [[ "$ERR_CODE" == "97" ]] || [[ "$ERR_CODE" == "56" ]]; }; then
-    echo "   注：socks5:// 由本机解析，目标会以 IP 字面量交给代理。本项目的 gost 2.x 链式"
-    echo "   转发会把目标一律当“域名”转给上游，IPv6 字面量因此被拒（rep=4）。改用"
-    echo "   socks5h://（代理侧解析）或 http://（HTTP CONNECT）不受影响。"
+    echo "   注：socks5:// 由本机解析，目标以 IP 字面量交给代理。旧镜像（gost 2.x）链式"
+    echo "   转发时会一律按“域名”上送，IPv6 字面量因此被拒（rep=4）；镜像默认已是"
+    echo "   gost 3.3.3（已修复）。临时绕过：改 socks5h:// 或 http:// 代理。"
   fi
   echo "=================================================================="
   exit 1

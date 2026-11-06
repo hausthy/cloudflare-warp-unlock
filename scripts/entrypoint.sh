@@ -143,6 +143,14 @@ fi
   gost -L "auto://${GOST_USER_PASS}:${PUBLIC_PORT}" \
        -F "socks5://127.0.0.1:${WARP_PROXY_PORT}" >> /logs/gost.log 2>&1 &
 
+  # 前端启动自检：gost 升级后若 CLI 语法不兼容，进程会立刻退出且不占端口，
+  # 这里主动探一次，避免"容器 Up 但端口不通"的静默故障
+  sleep 1
+  if ! (exec 3<>"/dev/tcp/127.0.0.1/${PUBLIC_PORT}") 2>/dev/null; then
+    log "警告：GOST 未监听 :${PUBLIC_PORT}，多为启动参数/版本不兼容；详情：tail -20 /logs/gost.log"
+    tail -n 5 /logs/gost.log 2>/dev/null | sed 's/^/    /' | while IFS= read -r l; do log "$l"; done
+  fi
+
   # 7. 看门狗：定期验证隧道连通性，失联自动重连
   #    （日志滚动由 log_writer 按日期处理，这里不再做 10MB 原地截断）
   while true; do

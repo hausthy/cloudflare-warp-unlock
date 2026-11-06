@@ -5,7 +5,7 @@ services:
     build:
       context: .
       args:
-        GOST_VERSION: "${GOST_VERSION:-2.11.5}"
+        GOST_VERSION: "${GOST_VERSION:-3.3.3}"
         # 1 = UPX 压缩 warp-svc（默认，镜像 ~139MB）；守护进程异常时改 0 回退
         UPX_WARP_SVC: "${UPX_WARP_SVC:-1}"
     restart: unless-stopped

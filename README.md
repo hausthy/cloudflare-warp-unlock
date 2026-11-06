@@ -190,14 +190,16 @@ docker images | grep cloudflare-warp-unlock
 
 ### 镜像体积与构建参数
 
-最终镜像 **~139MB**（默认开启 UPX）/ **~190MB**（`UPX_WARP_SVC=0` 回退不压缩），从初版 330MB 优化而来。
+最终镜像 **~150MB**（默认开启 UPX，gost v3.3.3）/ **~200MB**（`UPX_WARP_SVC=0` 回退不压缩），从初版 330MB 优化而来。
 瘦身手段：UPX 压缩三件套（gost/warp-cli/warp-svc）、静态 curl（SHA256 强校验）、
 清除 apt/perl/gconv 冗余组件、scratch 压平镜像层。
+
+gost 从 2.11.5 升到 3.3.3 带来 **+10.7MB**（实测：v3 原始 49.87MB → UPX 后 15.19MB，v2 为 13MB → 4.5MB），换来的是 SOCKS5 链式转发保留目标地址类型（见下节）。
 
 | 构建参数 | 默认 | 说明 |
 | :--- | :--- | :--- |
 | `UPX_WARP_SVC` | `1` | UPX 压缩 warp-svc 守护进程（省 ~50MB）。若守护进程出现异常，改回 `0` 重建即回退 |
-| `GOST_VERSION` | `2.11.5` | GOST 版本 |
+| `GOST_VERSION` | `3.3.3` | GOST 版本（v3 修复 IPv6 字面量转发，见工具章节说明） |
 | `CURL_STATIC_VERSION` | `8.23.0-1` | 静态 curl 版本（stunnel/static-curl，构建期 SHA256 强校验） |
 | `UPX_VERSION` | `4.2.4` | UPX 版本 |
 | `DEBIAN_RELEASE` | `bookworm` | 基础镜像发行版 |
@@ -242,7 +244,7 @@ docker build --target runtime -t cloudflare-warp-unlock:debug .
 | `WARP_LOG_MAX_SIZE_MB` | `10` | 单文件大小上限（MB），超过则同日分卷 `warp-DATE-NN.log`，最新始终为 `warp-DATE.log`；`0` = 不限制 |
 | `WARP_LOG_STDOUT` | `1` | `1` = 落盘 + 容器日志双路；`0` = 仅落盘 |
 | `LOG_NOISE_KEYWORDS` | 空 | 追加日志噪音拦截关键字（ERE 正则，`\|` 分隔），叠加在内置白名单之上，所有级别（除 debug/trace）生效。例：`my_noisy_span\|DeviceWithNoLimits` |
-| `GOST_VERSION` | `2.11.5` | GOST 构建版本 |
+| `GOST_VERSION` | `3.3.3` | GOST 构建版本（v2 会把目标重编码为域名，v3 保留 IP 类型） |
 
 ### 日志系统说明
 
@@ -369,7 +371,9 @@ PROXY_USER=u PROXY_PASS=p ./tools/warp-ping.sh -p 1.2.3.4:40000 netflix.com  # �
 | `连接结论: ❌ 未连通`（HTTP 000） | **失败**，会打印 curl 退出码与错误行（7=连不上、56=被重置、97=SOCKS5 拒绝），耗时再短也无参考价值 |
 | `底层实锤: ⚠️ 请求目标是【IPv6】…但隧道未建立` | 握手行只代表 curl 请求了该族，**不代表连通**；需结合上面的错误行判断 |
 
-**已知限制（镜像内 gost 2.11.5 的链式转发）**：`socks5://` 由本机解析，目标以 **IP 字面量**交给代理；而 gost 2.x 在 `-F` 链式转发时会**一律按域名类型（ATYP=0x03）**把地址交给上游 warp-svc，IPv6 字面量因此被当成域名解析失败，表现为 `curl: (97) ... (4)`（SOCKS5 应答 `Host unreachable`）。同一目标改用 `socks5h://`（代理侧解析）或 `http://`（HTTP CONNECT）均正常——**说明隧道与 IPv6 出口本身没问题**，只是地址类型在中间被改写。
+**历史问题与修复（gost 2.x → 3.x）**：`socks5://` 由本机解析，目标以 **IP 字面量**交给代理。gost 2.11.5 的 `socks5Connector` 在 `-F` 链式转发时**一律按域名类型（ATYP=0x03）**上送，IPv6 字面量被上游当域名解析失败，表现为 `curl: (97) ... (4)`（SOCKS5 应答 `Host unreachable`）；此时改用 `socks5h://` 或 `http://` 即正常——说明隧道与 IPv6 出口本身没问题，只是地址类型在中间被改写。
+
+当前镜像默认 `GOST_VERSION=3.3.3`，其 `Addr.ParseFrom` 会保留 IP 类型（ATYP=4），`socks5://` 与 IPv6 字面量均已正常。**若自行把 `GOST_VERSION` 回退到 2.x**，需改用 `socks5h://` 或 `http://` 代理，否则会复现该现象。
 
 **代理优先级**：`-p/--proxy` > 环境变量 `PROXY` > 默认 `socks5://127.0.0.1:40000`（容器映射端口）。地址可省略协议前缀（`host:port` 自动补 `socks5://`）。
 
@@ -477,5 +481,5 @@ systemctl restart docker     # 秒级中断，容器按 unless-stopped 自动拉
 ## 📜 鸣谢与致敬
 
 * [seiry/docker-warp-proxy](https://github.com/seiry/docker-warp-proxy)：官方客户端 proxy 模式容器化思路与 warp-cli 版本兼容处理的灵感来源
-* [ginuerzh/gost](https://github.com/ginuerzh/gost)：功能强大的安全代理工具（前端双协议与认证）
+* [go-gost/gost](https://github.com/go-gost/gost)：功能强大的安全代理工具（前端双协议与认证）
 * [Cloudflare WARP Client for Linux](https://pkg.cloudflareclient.com/)：官方客户端

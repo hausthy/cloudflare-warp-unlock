@@ -26,7 +26,7 @@ ARG DEBIAN_RELEASE=bookworm
 FROM docker.io/debian:${DEBIAN_RELEASE}-slim AS builder
 
 ARG DEBIAN_RELEASE
-ARG GOST_VERSION=2.11.5
+ARG GOST_VERSION=3.3.3
 # 静态 curl（stunnel/static-curl 项目，替代 apt curl 及其 ~20MB 动态依赖闭包）；
 # SHA256 取自 release 页官方 checksums，构建期强校验
 ARG CURL_STATIC_VERSION=8.23.0-1
@@ -85,18 +85,35 @@ RUN set -eux; \
       fi; \
     done; \
     # ---------- 下载 GOST（静态单文件，用于前端 auto 协议与可选认证） ----------
-    case "${TARGETARCH}" in \
-      amd64) GOST_ARCH=amd64 ;; \
-      arm64) GOST_ARCH=armv8 ;; \
-      *) echo "不支持的构建架构: ${TARGETARCH}"; exit 1 ;; \
+    # 版本分支：
+    #   v3（go-gost）——release 资产为 tar.gz，架构名 amd64/arm64；链式转发时用
+    #     Addr.ParseFrom 解析目标，会保留 IPv6 字面量类型（ATYP=4）；
+    #   v2（ginuerzh）——裸 .gz，架构名 amd64/armv8；其 socks5Connector 把目标
+    #     一律按 AddrDomain 上送，导致「客户端本地解析出 IPv6 字面量」时上游
+    #     解析失败（curl 97 / SOCKS5 rep=4 Host unreachable），故默认升到 v3。
+    GOST_MAJOR="${GOST_VERSION%%.*}"; \
+    case "${TARGETARCH}:${GOST_MAJOR}" in \
+      amd64:3) GOST_URL="https://github.com/go-gost/gost/releases/download/v${GOST_VERSION}/gost_${GOST_VERSION}_linux_amd64.tar.gz"; GOST_PKG=tar.gz ;; \
+      arm64:3) GOST_URL="https://github.com/go-gost/gost/releases/download/v${GOST_VERSION}/gost_${GOST_VERSION}_linux_arm64.tar.gz"; GOST_PKG=tar.gz ;; \
+      amd64:2) GOST_URL="https://github.com/ginuerzh/gost/releases/download/v${GOST_VERSION}/gost-linux-amd64-${GOST_VERSION}.gz"; GOST_PKG=gz ;; \
+      arm64:2) GOST_URL="https://github.com/ginuerzh/gost/releases/download/v${GOST_VERSION}/gost-linux-armv8-${GOST_VERSION}.gz"; GOST_PKG=gz ;; \
+      *) echo "不支持的组合: arch=${TARGETARCH} gost=${GOST_VERSION}"; exit 1 ;; \
     esac; \
-    curl -fsSL --retry 3 \
-      "https://github.com/ginuerzh/gost/releases/download/v${GOST_VERSION}/gost-linux-${GOST_ARCH}-${GOST_VERSION}.gz" \
-      -o /tmp/gost.gz; \
+    echo ">>> GOST ${GOST_VERSION} (${GOST_PKG}) <- ${GOST_URL}"; \
+    curl -fsSL --retry 3 "${GOST_URL}" -o "/tmp/gost.${GOST_PKG}"; \
     mkdir -p /out/usr/local/bin; \
-    gzip -dc /tmp/gost.gz > /out/usr/local/bin/gost; \
-    chmod 0755 /out/usr/local/bin/gost; \
-    rm -f /tmp/gost.gz; \
+    if [ "${GOST_PKG}" = "tar.gz" ]; then \
+      mkdir -p /tmp/gostx; \
+      tar -xzf "/tmp/gost.${GOST_PKG}" -C /tmp/gostx; \
+      GOST_BIN="$(find /tmp/gostx -type f -name gost | head -n1)"; \
+      test -n "${GOST_BIN}"; \
+      install -m 0755 "${GOST_BIN}" /out/usr/local/bin/gost; \
+      rm -rf /tmp/gostx; \
+    else \
+      gzip -dc "/tmp/gost.${GOST_PKG}" > /out/usr/local/bin/gost; \
+      chmod 0755 /out/usr/local/bin/gost; \
+    fi; \
+    rm -f "/tmp/gost.${GOST_PKG}"; \
     # ---------- 剥离符号表与调试信息（对运行时零影响，体积收益巨大） ----------
     # warp-svc / warp-cli / gost 均为 Go/Rust 二进制，自带数十 MB 的 DWARF 调试
     # 段；动态库同样带符号表。--strip-unneeded 只移除重定位与调试所需符号，
