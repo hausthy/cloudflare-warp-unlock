@@ -137,7 +137,7 @@ RUN set -eux; \
     echo ">>> warp-cli 路径: ${WARP_CLI}"; \
     test -n "$WARP_SVC" && test -n "$WARP_CLI"; \
     chmod 0755 "/out${WARP_SVC}" "/out${WARP_CLI}"; \
-    # ---------- UPX 压缩 ----------
+    # ---------- UPX 压缩（--best --lzma 极致压缩率） ----------
     case "${TARGETARCH}" in \
       amd64) UPX_ARCH=amd64 ;; \
       arm64) UPX_ARCH=arm64 ;; \
@@ -150,10 +150,10 @@ RUN set -eux; \
     tar -xJf /tmp/upx.tar.xz -C /tmp/upx --strip-components=1; \
     test -x /tmp/upx/upx; \
     echo ">>> UPX 前:"; ls -lh /out/usr/local/bin/gost "/out${WARP_CLI}" | awk '{print $5, $9}'; \
-    /tmp/upx/upx -q -9 /out/usr/local/bin/gost || true; \
-    /tmp/upx/upx -q -9 "/out${WARP_CLI}" || true; \
+    /tmp/upx/upx -q --best --lzma /out/usr/local/bin/gost || true; \
+    /tmp/upx/upx -q --best --lzma "/out${WARP_CLI}" || true; \
     if [ "${UPX_WARP_SVC}" = "1" ]; then \
-      /tmp/upx/upx -q -9 "/out${WARP_SVC}" || true; \
+      /tmp/upx/upx -q --best --lzma "/out${WARP_SVC}" || true; \
     fi; \
     echo ">>> UPX 后:"; ls -lh /out/usr/local/bin/gost "/out${WARP_CLI}" "/out${WARP_SVC}" | awk '{print $5, $9}'; \
     # ---------- 静态 curl ----------
@@ -171,7 +171,7 @@ RUN set -eux; \
     rm -rf /tmp/static-curl /tmp/static-curl.tar.xz; \
     test -x /out/usr/local/bin/curl; \
     echo "${CURL_SHA256}  /out/usr/local/bin/curl" | sha256sum -c -; \
-    /tmp/upx/upx -q -9 /out/usr/local/bin/curl || true; \
+    /tmp/upx/upx -q --best --lzma /out/usr/local/bin/curl || true; \
     chmod 0755 /out/usr/local/bin/curl; \
     rm -rf /tmp/upx /tmp/upx.tar.xz; \
     SVC_REL="$(realpath --relative-to="/out/usr/local/bin" "/out${WARP_SVC}")"; \
@@ -209,14 +209,22 @@ RUN set -eux; \
            /var/lib/dpkg/info/* /var/cache/* \
            /usr/bin/apt* /usr/bin/dpkg* /usr/lib/apt /usr/lib/dpkg \
            /var/lib/dpkg /var/lib/apt /etc/apt \
-    # 彻底移除基础镜像残留无用组件（适配多架构通配符，额外节约 ~25-35MB）
+    # 彻底移除基础镜像残留无用组件与非必需重型运维工具（适配多架构通配符，节约 ~35-45MB）
     && rm -rf /usr/lib/*-linux-gnu/gconv \
               /usr/lib/*-linux-gnu/perl-base \
               /usr/share/perl* /usr/lib/perl* \
               /usr/bin/perl* \
               /usr/bin/openssl /usr/lib/ssl/misc \
               /usr/lib/systemd /lib/systemd \
-              /usr/lib/udev /usr/share/lintian /usr/share/bug /etc/init.d
+              /usr/lib/udev /usr/share/lintian /usr/share/bug /etc/init.d /etc/cron* \
+              /usr/bin/tar /usr/bin/diff* /usr/bin/cmp /usr/bin/xz* /usr/bin/lzma* \
+              /usr/bin/gzip /usr/bin/gunzip /usr/bin/zcat /usr/bin/bzip2* \
+              /usr/sbin/fdisk* /usr/sbin/cfdisk* /usr/sbin/sfdisk* /usr/sbin/mkfs* \
+              /usr/sbin/tune2fs /usr/sbin/mke2fs /usr/sbin/e2fsck /usr/sbin/badblocks \
+              /usr/bin/lsblk /usr/bin/lscpu /usr/bin/dmesg /usr/bin/chcpu \
+              /usr/bin/renice /usr/bin/ionice /usr/bin/flock /usr/bin/losetup \
+              /usr/bin/wall /usr/bin/mesg /usr/bin/script* /usr/bin/more /usr/bin/less \
+              /usr/sbin/chroot /usr/sbin/group* /usr/sbin/user* /usr/sbin/vipw /usr/sbin/vigr
 
 # 从 builder 层拷贝运行时增量：warp 二进制 + 全部依赖库 + GOST + 静态 curl
 COPY --from=builder /out/ /

@@ -190,12 +190,12 @@ docker images | grep cloudflare-warp-unlock
 
 ### 镜像体积与构建参数
 
-最终镜像 **~95MB**（默认开启 UPX，gost v3.3.3）/ **~150MB**（`UPX_WARP_SVC=0` 回退不压缩），相比初版 330MB 与早期 150MB 大幅瘦身。
+最终镜像 **~90MB**（默认开启 UPX，gost v3.3.3）/ **~145MB**（`UPX_WARP_SVC=0` 回退不压缩），相比初版 330MB 与早期 150MB 大幅瘦身。
 瘦身手段：
 1. **剔除官方 deb 的 GUI 垃圾**：官方 deb 包含桌面托盘（`warp-taskbar`）与 Flutter Linux GTK 运行时资源（`/usr/lib/warp`，~42MB），提取时彻底剔除，仅保留后台服务核心；
 2. **极速构建闭包提取**：构建期仅提取 `warp-svc` 动态依赖，跳过官方 deb 对 WebKitGTK / GTK3 等 ~400MB 桌面库的下载与解压；
-3. **多架构清理**：适配 `*-linux-gnu` 通配符，修复 ARM64 下 `gconv` / `perl` 清理失效的问题；
-4. **二进制与层优化**：UPX 压缩三件套（gost/warp-cli/warp-svc）、静态 curl（SHA256 强校验）、scratch 物理压平合并单层。
+3. **多架构与基础镜像深度清理**：适配 `*-linux-gnu` 通配符修复 ARM64，并定向裁剪 Debian 基础镜像中冗余的 util-linux/tar/diffutils/e2fsprogs 等非必需重型工具（省 ~12MB）；
+4. **二进制与层优化**：UPX `--best --lzma` 极致压缩（gost/warp-cli/warp-svc/curl，相比普通 UPX 再压 15MB+）、静态 curl（SHA256 强校验）、scratch 物理压平合并单层。
 
 gost 从 2.11.5 升到 3.3.3 带来 **+10.7MB**（实测：v3 原始 49.87MB → UPX 后 15.19MB，v2 为 13MB → 4.5MB），换来的是 SOCKS5 链式转发保留目标地址类型（见下节）。
 
@@ -221,7 +221,7 @@ docker build --build-arg UPX_WARP_SVC=0 -t cloudflare-warp-unlock:test .
 docker compose exec cloudflare-warp-unlock bash
 ```
 
-> 说明：官方客户端 MASQUE 架构已剥离无用的 `/usr/lib/warp` 桌面组件（省 42MB），当前 ~95MB 的体积基本包含 Debian 最小运行时闭包与官方 Rust 守护进程，实现了体积与官方稳定性的最佳平衡。
+> 说明：官方客户端 MASQUE 架构已剥离无用的 `/usr/lib/warp` 桌面组件（省 42MB），并深度剔除基础镜像冗余与启用 UPX LZMA，当前 ~90MB 的体积基本包含 Debian 最小运行时闭包与官方 Rust 守护进程，实现了体积与官方稳定性的最佳平衡。
 
 ---
 
