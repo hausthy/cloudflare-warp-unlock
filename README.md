@@ -176,7 +176,7 @@ docker compose logs -f warp-unlock
 curl -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep warp
 curl -x http://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep warp
 
-# 6. 一键诊断（含解锁检测实时结果与巡检历史）
+# 6. 一键诊断（含 IPv4/IPv6 双栈出口、解锁实时结果与巡检历史）
 docker compose exec warp-unlock /app/check-status.sh
 
 # 7. 跟踪解锁巡检记录
@@ -329,13 +329,13 @@ curl -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | gre
 # HTTP CONNECT 模式（同一端口）
 curl -x http://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep warp
 
-# 查询出口 IP
+# 查询出口 IP（默认协议族；双栈同时对照见 check-status.sh 的 Egress IP 段）
 curl -x socks5h://127.0.0.1:40000 https://api.ip.sb/ip
 
 # 确认端口仅监听本机回环
 ss -lntp | grep 40000
 
-# 一键完整诊断
+# 一键完整诊断（含 IPv4/IPv6 双栈出口地址）
 docker compose exec warp-unlock /app/check-status.sh
 
 # 宿主机链路分析

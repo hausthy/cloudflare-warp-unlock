@@ -32,6 +32,33 @@ else
 fi
 
 echo
+echo "===== Egress IP (IPv4 / IPv6) ====="
+# 协议族判定必须靠「只有 A / 只有 AAAA」的域名：
+# socks5h 在代理端解析域名，curl -4/-6 只约束本地段、管不到出口协议族。
+# api-ipv4.ip.sb 仅 A 记录 → 强制 v4 出站；api-ipv6.ip.sb 仅 AAAA → 强制 v6 出站。
+is_ip() { [[ "$1" =~ ^[0-9a-fA-F:.]+$ ]] && [[ "$1" == *.* || "$1" == *:* ]]; }
+probe_egress() {
+  local u out
+  for u in "$@"; do
+    out="$(curl -ksm6 -x socks5h://127.0.0.1:40000 "$u" 2>/dev/null | tr -d ' \t\r\n' | head -c 64)"
+    if is_ip "$out"; then printf '%s' "$out"; return 0; fi
+  done
+  return 1
+}
+ipv4="$(probe_egress https://api-ipv4.ip.sb/ip https://ipv4.icanhazip.com || true)"
+ipv6="$(probe_egress https://api-ipv6.ip.sb/ip https://ipv6.icanhazip.com || true)"
+if [[ -n "$ipv4" ]]; then echo "IPv4 出口: $ipv4"; else echo "IPv4 出口: 不可用（v4 路由未建立或端口不可达）"; fi
+if [[ -n "$ipv6" ]]; then echo "IPv6 出口: $ipv6"; else echo "IPv6 出口: 不可用（容器内禁用 v6 / 上游无 v6 / v6 路径不通）"; fi
+default_ip="$(printf '%s\n' "${trace:-}" | sed -n 's/^ip=//p' | tr -d ' \r')"
+if [[ -n "$default_ip" ]]; then
+  if [[ "$default_ip" == *:* ]]; then
+    echo ">>> 默认出口协议族：IPv6（$default_ip，DNS 解析 AAAA 优先）"
+  else
+    echo ">>> 默认出口协议族：IPv4（$default_ip）"
+  fi
+fi
+
+echo
 echo "===== Processes ====="
 # 镜像已剔除 procps（pgrep/ps），直接遍历 /proc 按 comm 匹配
 for name in warp-svc gost; do
