@@ -271,7 +271,9 @@ RUN chmod 0755 /entrypoint.sh /app/check-status.sh /app/unlock-check.sh \
 # ------------------------------------------------------------------------------
 FROM scratch
 
-ENV TZ=Asia/Shanghai
+ENV TZ=Asia/Shanghai \
+    MALLOC_ARENA_MAX=2 \
+    TOKIO_WORKER_THREADS=2
 
 # 最终文件系统整体迁移（含 entrypoint 脚本、warp 二进制与全部依赖库）
 COPY --from=runtime / /

@@ -26,6 +26,8 @@ PUBLIC_PORT=40000              # 对外暴露端口
 # ------------------------------------------------------------------------------
 export RUST_LOG="${WARP_LOG_LEVEL:-error}"
 export NO_COLOR=1   # warp-svc 若识别则关闭 ANSI 颜色码；不识别时由 filter_by_level 剥离
+export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"
+export TOKIO_WORKER_THREADS="${TOKIO_WORKER_THREADS:-2}"
 WARP_LOG_FILE="${WARP_LOG_FILE:-/logs/warp.log}"
 
 mkdir -p /logs /var/lib/cloudflare-warp

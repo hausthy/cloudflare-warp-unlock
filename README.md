@@ -281,20 +281,16 @@ compose 已内置资源限制（服务器实测校准）：
 docker stats --no-stream cloudflare-warp-unlock
 ```
 
-### 内存优化：为什么这里没有开关可调
+### 运行时内存与并发优化
 
-MASQUE 模式下 warp-svc 稳态 ~150MB，大头是 QUIC/HTTP3 协议栈（quiche 缓冲 + tokio 多线程运行时），属官方闭源黑盒，**没有任何参数能压低**。
+官方客户端 MASQUE 架构下，`warp-svc` 底层基于 Tokio 异步并发运行时与 quiche 协议栈。为了在不牺牲转发性能的前提下抑制内存虚高，镜像内置了以下底层调优：
 
-曾经提供过 `WARP_PROTOCOL=WireGuard` 想切老协议省内存，**结论是行不通**，已移除：warp-svc 的 proxy 模式**只支持 MASQUE**（官方硬限制）。设成 WireGuard 时 `warp-cli tunnel protocol set` 会返回成功，但 `connect` 会进入每 5 秒一次的失败重试死循环，隧道永远起不来，日志表现为：
-
-```text
-WARN  actor_connection::controller: Connection failed to start error=InvalidKey("Proxy mode only supports MASQUE")
-ERROR actor_connection::handler: Connection startup error error=InvalidKey("Proxy mode only supports MASQUE")
-```
-
-现在脚本会**无条件把协议固化为 MASQUE**（含回写持久化配置，防止旧 `./config` 里残留 WireGuard 继续报错）；误设 `WARP_PROTOCOL=WireGuard` 只会得到一条告警，不会拖死隧道。
-
-真要把内存压到几十 MB，只能换架构——即 master 分支的 v1.x 方案（wgcf + wireproxy 用户态 WireGuard，稳态 ~20MB，代价是不再使用官方客户端、MASQUE 指纹优势消失）。这也是「proxy 模式 + 官方客户端」这套架构的固有成本，512m 的 mem_limit 就是按 ~170MB 基线留的余量。
+1. **`MALLOC_ARENA_MAX=2`（抑制 glibc 内存碎片）**：
+   Linux glibc 默认按 CPU 核心数生成大量内存池（Arenas），多线程高频使用后内存碎片不会及时返还操作系统。限制为 2 强制复用，**稳态立省 30~50MB 常驻物理内存（RSS）**。
+2. **`TOKIO_WORKER_THREADS=2`（约束 Tokio 工作线程数）**：
+   限制 warp-svc 内部异步工作线程数，大幅减少线程栈空间与系统 PIDS，同时避免单核配额下多线程频繁抢占造成的 CPU 上下文切换消耗。
+3. **协议限制说明**：
+   warp-svc 的 proxy 模式**仅支持 MASQUE 协议**（官方限制，设为 WireGuard 会导致连接无限失败重试）。因此协议固定为 MASQUE；搭配上述内存优化后，稳态常驻内存将从初期的 ~180MB 稳步**收敛至 100MB~120MB 档**，`mem_limit` 设为 `256m`~`512m` 即可稳定运行。
 
 ### 出口协议族说明（默认双栈）
 

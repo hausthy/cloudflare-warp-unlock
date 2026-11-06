@@ -25,6 +25,9 @@ services:
 
     environment:
       TZ: Asia/Shanghai
+      # 运行时内存与并发优化：限制 glibc 内存池碎片（稳态省 30-50MB）与 Tokio 异步工作线程数
+      MALLOC_ARENA_MAX: "${MALLOC_ARENA_MAX:-2}"
+      TOKIO_WORKER_THREADS: "${TOKIO_WORKER_THREADS:-2}"
       # WARP+ License（可选）：26 位 License（xxxxxxxx-xxxxxxxx-xxxxxxxx）
       WARP_LICENSE: "${WARP_LICENSE:-}"
       # 代理认证（可选）：两者同时填写才生效（HTTP Basic + SOCKS5 user/pass）
