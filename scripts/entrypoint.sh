@@ -157,7 +157,12 @@ fi
 
 # ------------------------------------------------------------------------------
 # 解锁巡检循环：定期检测流媒体解锁与出口地区，未通过自动重连换 IP（刷 IP）
-# 环境变量：UNLOCK_STREAMS (ndc) / WARP_REGION (期望地区) / UNLOCK_INTERVAL (秒)
+# 环境变量：
+#   WARP_AUTO_UNLOCK  —— 总开关，1 开启 / 0 关闭（默认 1）
+#   UNLOCK_STREAMS    —— 检测项组合，n=Netflix d=Disney+ c=ChatGPT（默认 ndc，留空=不检测）
+#   WARP_UNLOCK_ROTATE—— 未通过时是否轮换出口 IP，1 轮换（默认）/ 0 仅记录不动 IP
+#   UNLOCK_INTERVAL   —— 巡检间隔秒数（默认 300）
+#   WARP_REGION       —— 期望出口地区，非空则校验 loc=
 # ------------------------------------------------------------------------------
 if [[ "${WARP_AUTO_UNLOCK:-1}" == "1" ]]; then
   (
@@ -165,14 +170,18 @@ if [[ "${WARP_AUTO_UNLOCK:-1}" == "1" ]]; then
     sleep "${UNLOCK_INITIAL_DELAY:-60}"   # 等隧道与代理稳定后先做首轮检测
     while true; do
       if ! /app/unlock-check.sh; then
-        log "解锁巡检：检测未通过，开始轮换出口 IP（最多 3 次）"
-        for _ in 1 2 3; do
-          warp-cli --accept-tos disconnect >/dev/null 2>&1 || true
-          warp-cli --accept-tos connect >/dev/null 2>&1 || true
-          sleep 10
-          /app/unlock-check.sh && { log "解锁巡检：重连后检测通过"; break; }
-          log "解锁巡检：第 ${_} 次重连后仍未通过"
-        done
+        if [[ "${WARP_UNLOCK_ROTATE:-1}" != "1" ]]; then
+          log "解锁巡检：检测未通过（WARP_UNLOCK_ROTATE=0，仅记录不轮换 IP）"
+        else
+          log "解锁巡检：检测未通过，开始轮换出口 IP（最多 3 次）"
+          for _ in 1 2 3; do
+            warp-cli --accept-tos disconnect >/dev/null 2>&1 || true
+            warp-cli --accept-tos connect >/dev/null 2>&1 || true
+            sleep 10
+            /app/unlock-check.sh && { log "解锁巡检：重连后检测通过"; break; }
+            log "解锁巡检：第 ${_} 次重连后仍未通过"
+          done
+        fi
       fi
       sleep "$interval"
     done

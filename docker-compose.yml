@@ -34,6 +34,8 @@ services:
       UNLOCK_STREAMS: "${UNLOCK_STREAMS:-ndc}"
       UNLOCK_INTERVAL: "${UNLOCK_INTERVAL:-300}"
       WARP_AUTO_UNLOCK: "${WARP_AUTO_UNLOCK:-1}"
+      # 检测未通过时是否轮换出口 IP：1 轮换（默认）/ 0 仅记录日志不动 IP
+      WARP_UNLOCK_ROTATE: "${WARP_UNLOCK_ROTATE:-1}"
       # 期望出口地区（验证用）与自定义入口 Endpoint（高级）
       WARP_REGION: "${WARP_REGION:-}"
       WARP_ENDPOINT: "${WARP_ENDPOINT:-}"

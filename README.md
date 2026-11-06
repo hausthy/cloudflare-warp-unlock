@@ -228,7 +228,8 @@ docker build --target runtime -t warp-unlock:debug .
 | `PROXY_USER` / `PROXY_PASS` | 空 | 代理认证（两者同时填写才生效），HTTP Basic + SOCKS5 user/pass |
 | `UNLOCK_STREAMS` | `ndc` | 解锁检测项：`n` (Netflix)、`d` (Disney+)、`c` (ChatGPT)，留空则不检测 |
 | `UNLOCK_INTERVAL` | `300` | 解锁巡检间隔（秒） |
-| `WARP_AUTO_UNLOCK` | `1` | 是否开启解锁巡检 + 自动刷 IP（`0` 关闭，仅保留隧道看门狗） |
+| `WARP_AUTO_UNLOCK` | `1` | 流媒体解锁巡检总开关（`0` 关闭，仅保留隧道看门狗） |
+| `WARP_UNLOCK_ROTATE` | `1` | 检测未通过时是否轮换出口 IP：`1` = 断开重连刷 IP（最多 3 次）；`0` = 仅记录日志不动 IP |
 | `WARP_REGION` | 空 | 期望出口地区（两位代码），非空时巡检校验 `loc=` 是否匹配 |
 | `WARP_ENDPOINT` | 空 | （高级）自定义入口 `IP:PORT`，钉住入口影响落地 colo |
 | `WARP_PROTOCOL` | `MASQUE` | 隧道协议：`MASQUE` / `WireGuard`；WireGuard 内存占用显著更低（小内存 VPS），见「内存优化」节 |
@@ -354,6 +355,15 @@ docker compose restart warp-unlock
 v2.0 通过**巡检 + 轮换**实现：
 - `unlock-check.sh` 每 `UNLOCK_INTERVAL` 秒检测 Netflix/Disney+/ChatGPT 与出口地区（`WARP_REGION`）；
 - 未通过则 `warp-cli disconnect && connect` 轮换出口 IP（单轮最多 3 次），通过即保持。
+
+三个环境变量即可完全控制行为：
+
+| 目的 | 配置 |
+| :--- | :--- |
+| 完全关闭解锁巡检 | `WARP_AUTO_UNLOCK=0` |
+| 只检测不换 IP（固定优质 IP 时用） | `WARP_AUTO_UNLOCK=1` + `WARP_UNLOCK_ROTATE=0` |
+| 只检测某几项 | `UNLOCK_STREAMS=n` / `dc` / `ndc`（留空 = 不检测，仅保活） |
+| 默认（检测全部 + 未通过轮换） | `WARP_AUTO_UNLOCK=1` + `UNLOCK_STREAMS=ndc` + `WARP_UNLOCK_ROTATE=1` |
 
 与 v1.x 的差异：MASQUE 模式下官方客户端不提供地区强制切换，`WARP_REGION` 是**验证目标**——轮换通常只能改变同区域内的出口 IP 与解锁状态，若你的 VPS 所在 colo 始终无法满足期望地区，可尝试 `WARP_ENDPOINT` 钉住其他地区的 Cloudflare 入口 IP（高级玩法，需自行寻找可用入口），或回退 v1.x（WGCF 可直接改配置选地区）。
 
