@@ -1,6 +1,6 @@
 services:
-  warp-unlock:
-    container_name: warp-unlock
+  cloudflare-warp-unlock:
+    container_name: cloudflare-warp-unlock
     image: local/warp-unlock:2.0
     build:
       context: .

@@ -46,7 +46,7 @@ flowchart TD
         Client -->|仅本机回环访问| SocksPort
     end
 
-    subgraph Container["warp-unlock 容器内部（最小特权沙箱）"]
+    subgraph Container["cloudflare-warp-unlock 容器内部（最小特权沙箱）"]
         Gost["GOST 前端 (:40000)<br>auto 协议识别 + 可选认证"]
         WarpSvc["warp-svc 官方守护进程<br>proxy 模式 (:40001)"]
         Watchdog["看门狗循环<br>(trace 探测 / 失联自动重连)"]
@@ -95,12 +95,12 @@ flowchart TD
 ## 📁 目录结构
 
 ```text
-warp-unlock-docker/
+cloudflare-warp-unlock/
 ├── Dockerfile                   # Debian + 官方 cloudflare-warp + GOST 构建（含瘦身清理）
 ├── docker-compose.yml           # 服务编排（cap_add: NET_ADMIN）
 ├── .env.example                 # 环境变量模板（推荐生产基线：3MB 分卷 + warn + 关自动解锁）
 ├── .github/workflows/
-│   └── docker-image.yml         # 预构建镜像 CI（多架构 + 每日重建）
+│   └── docker-build.yml         # 预构建镜像 CI（手动触发 + 日期 tag）
 ├── config/                      # 挂载卷：warp-svc 注册状态持久化
 ├── logs/                        # 挂载卷：GOST 日志 + 解锁检测历史
 │   ├── gost.log
@@ -121,7 +121,7 @@ warp-unlock-docker/
 
 ```bash
 # Docker Hub
-docker run -d --name warp-unlock \
+docker run -d --name cloudflare-warp-unlock \
   --restart unless-stopped \
   --cap-add NET_ADMIN \
   -p 127.0.0.1:40000:40000 \
@@ -129,7 +129,7 @@ docker run -d --name warp-unlock \
   hausthy/cloudflare-warp-unlock:latest
 
 # 或 GitHub Container Registry
-docker run -d --name warp-unlock \
+docker run -d --name cloudflare-warp-unlock \
   --restart unless-stopped \
   --cap-add NET_ADMIN \
   -p 127.0.0.1:40000:40000 \
@@ -145,7 +145,7 @@ docker run -d --name warp-unlock \
 ```bash
 cp .env.example .env      # 模板即推荐生产配置（低内存/精简日志/关自动解锁），按需改 WARP_LICENSE、认证
 docker compose up -d --build
-docker compose logs -f warp-unlock
+docker compose logs -f cloudflare-warp-unlock
 ```
 
 > 想恢复官方默认行为（MASQUE、`error` 日志、开启自动解锁）：删掉 `.env` 或把相关行注释掉即可回落到 compose 内置默认值。
@@ -159,9 +159,9 @@ docker compose logs -f warp-unlock
 ### 方案 C：从源码构建测试（服务器）
 
 ```bash
-# 1. 克隆分支（HTTPS 免登录；国内服务器慢可加镜像前缀 https://ghfast.top/）
-git clone -b v2 https://github.com/hausthy/warp_unlock.git warp-unlock-v2
-cd warp-unlock-v2
+# 1. 克隆仓库（HTTPS 免登录；国内服务器慢可加镜像前缀 https://ghfast.top/）
+git clone https://github.com/hausthy/cloudflare-warp-unlock.git
+cd cloudflare-warp-unlock
 
 # 2. 准备环境变量（按需填写 WARP_LICENSE / WARP_REGION / UNLOCK_STREAMS 等）
 cp .env.example .env
@@ -170,14 +170,14 @@ cp .env.example .env
 docker compose up -d --build
 
 # 4. 跟踪启动日志，看到 "WARP (MASQUE) 隧道已连通" 即成功
-docker compose logs -f warp-unlock
+docker compose logs -f cloudflare-warp-unlock
 
 # 5. 验证代理（SOCKS5 与 HTTP CONNECT 同端口）
 curl -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep warp
 curl -x http://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep warp
 
 # 6. 一键诊断（含 IPv4/IPv6 双栈出口、解锁实时结果与巡检历史）
-docker compose exec warp-unlock /app/check-status.sh
+docker compose exec cloudflare-warp-unlock /app/check-status.sh
 
 # 7. 跟踪解锁巡检记录
 tail -f logs/unlock.log
@@ -275,7 +275,7 @@ compose 已内置资源限制（服务器实测校准）：
 
 ```bash
 # 实时核对占用与限额余量
-docker stats --no-stream warp-unlock
+docker stats --no-stream cloudflare-warp-unlock
 ```
 
 ### 内存优化：为什么这里没有开关可调
@@ -339,7 +339,7 @@ curl -x socks5h://127.0.0.1:40000 https://api.ip.sb/ip
 ss -lntp | grep 40000
 
 # 一键完整诊断（含 IPv4/IPv6 双栈出口地址）
-docker compose exec warp-unlock /app/check-status.sh
+docker compose exec cloudflare-warp-unlock /app/check-status.sh
 
 # 宿主机链路分析
 ./tools/warp-ping.sh chatgpt.com
@@ -374,10 +374,10 @@ PROXY=socks5://10.0.0.5:40000 ./tools/warp-ping.sh netflix.com # 环境变量方
 ### Q1: 如何更换/轮换出口 IP？
 ```bash
 # 容器内重连
-docker compose exec warp-unlock warp-cli --accept-tos disconnect && \
-docker compose exec warp-unlock warp-cli --accept-tos connect
+docker compose exec cloudflare-warp-unlock warp-cli --accept-tos disconnect && \
+docker compose exec cloudflare-warp-unlock warp-cli --accept-tos connect
 # 或直接重启容器
-docker compose restart warp-unlock
+docker compose restart cloudflare-warp-unlock
 ```
 
 ### Q2: 解锁地区定向和刷 IP 是怎么实现的？和 v1.x 有什么不同？
