@@ -34,7 +34,7 @@ ARG CURL_STATIC_VERSION=8.23.0-1
 ARG CURL_STATIC_SHA256_AMD64=b19756efa22538f0af3bb293626841c9dbf0d168489a1924f0e3edec2f560ba6
 ARG CURL_STATIC_SHA256_ARM64=71780652d4e4de42bc0f2138cb764c90a7f8d4b64969450dd1dde5518cc5ff09
 ARG UPX_VERSION=4.2.4
-# UPX 同时压缩 warp-svc（默认 1 开启，镜像 ~100MB vs ~145MB）。warp-svc 为
+# UPX 同时压缩 warp-svc（默认 1 开启，镜像 ~88MB vs ~135MB）。warp-svc 为
 # 常驻守护进程，如运行异常可用 --build-arg UPX_WARP_SVC=0 回退不压缩版本
 ARG UPX_WARP_SVC=1
 ARG TARGETARCH
@@ -124,11 +124,11 @@ RUN set -eux; \
       chmod 0755 /out/usr/local/bin/gost; \
     fi; \
     rm -f "/tmp/gost.${GOST_PKG}"; \
-    # ---------- 剥离符号表与调试信息 ----------
+    # ---------- 剥离符号表与调试信息（动态库保留重定位，可执行文件彻底剥离符号） ----------
     if command -v strip >/dev/null 2>&1; then \
       echo ">>> strip 前体积: $(du -sh /out | cut -f1)"; \
-      find /out -type f \( -perm /111 -o -name '*.so*' \) \
-        -exec strip --strip-unneeded {} + 2>/dev/null || true; \
+      find /out -type f -name '*.so*' -exec strip --strip-unneeded {} + 2>/dev/null || true; \
+      find /out -type f -perm /111 ! -name '*.so*' -exec strip --strip-all {} + 2>/dev/null || true; \
       echo ">>> strip 后体积: $(du -sh /out | cut -f1)"; \
     fi; \
     WARP_SVC="$(find /out -name warp-svc -type f | head -n1 | sed "s|^/out||")"; \
@@ -209,7 +209,7 @@ RUN set -eux; \
            /var/lib/dpkg/info/* /var/cache/* \
            /usr/bin/apt* /usr/bin/dpkg* /usr/lib/apt /usr/lib/dpkg \
            /var/lib/dpkg /var/lib/apt /etc/apt \
-    # 彻底移除基础镜像残留无用组件与非必需重型运维工具（适配多架构通配符，节约 ~35-45MB）
+    # 彻底移除基础镜像残留无用组件与非必需重型运维工具（适配多架构通配符，节约 ~45-55MB）
     && rm -rf /usr/lib/*-linux-gnu/gconv \
               /usr/lib/*-linux-gnu/perl-base \
               /usr/share/perl* /usr/lib/perl* \
@@ -224,7 +224,29 @@ RUN set -eux; \
               /usr/bin/lsblk /usr/bin/lscpu /usr/bin/dmesg /usr/bin/chcpu \
               /usr/bin/renice /usr/bin/ionice /usr/bin/flock /usr/bin/losetup \
               /usr/bin/wall /usr/bin/mesg /usr/bin/script* /usr/bin/more /usr/bin/less \
-              /usr/sbin/chroot /usr/sbin/group* /usr/sbin/user* /usr/sbin/vipw /usr/sbin/vigr
+              /usr/sbin/chroot /usr/sbin/group* /usr/sbin/user* /usr/sbin/vipw /usr/sbin/vigr \
+              /usr/lib/*-linux-gnu/libstdc++.so* \
+              /usr/lib/*-linux-gnu/libdb-5.3* /usr/lib/*-linux-gnu/libdb.so* \
+              /usr/lib/*-linux-gnu/libgcrypt* /usr/lib/*-linux-gnu/libgpg-error* \
+              /usr/lib/*-linux-gnu/libbz2* /usr/lib/*-linux-gnu/liblz4* \
+              /usr/bin/b2sum /usr/bin/base32 /usr/bin/base64 /usr/bin/basenc \
+              /usr/bin/chcon /usr/bin/chgrp /usr/bin/chown /usr/bin/cksum \
+              /usr/bin/comm /usr/bin/csplit /usr/bin/dir /usr/bin/dircolors \
+              /usr/bin/expand /usr/bin/factor /usr/bin/fmt /usr/bin/fold \
+              /usr/bin/groups /usr/bin/hostid /usr/bin/join /usr/bin/link \
+              /usr/bin/logname /usr/bin/md5sum /usr/bin/mkfifo /usr/bin/mknod \
+              /usr/bin/mktemp /usr/bin/nice /usr/bin/nl /usr/bin/nohup \
+              /usr/bin/nproc /usr/bin/numfmt /usr/bin/od /usr/bin/paste \
+              /usr/bin/pathchk /usr/bin/pinky /usr/bin/pr /usr/bin/ptx \
+              /usr/bin/runcon /usr/bin/sha*sum /usr/bin/shred /usr/bin/shuf \
+              /usr/bin/split /usr/bin/stdbuf /usr/bin/stty /usr/bin/sum \
+              /usr/bin/sync /usr/bin/tac /usr/bin/truncate /usr/bin/tsort \
+              /usr/bin/tty /usr/bin/unexpand /usr/bin/uniq /usr/bin/unlink \
+              /usr/bin/uptime /usr/bin/users /usr/bin/vdir /usr/bin/who /usr/bin/yes \
+              /usr/bin/catchsegv /usr/bin/gencat /usr/bin/getconf /usr/bin/getent \
+              /usr/bin/iconv /usr/bin/ldd /usr/bin/locale /usr/bin/localedef \
+              /usr/bin/pldd /usr/bin/rpcgen /usr/bin/sotruss /usr/bin/sprof \
+              /usr/sbin/iconvconfig /usr/sbin/zic
 
 # 从 builder 层拷贝运行时增量：warp 二进制 + 全部依赖库 + GOST + 静态 curl
 COPY --from=builder /out/ /

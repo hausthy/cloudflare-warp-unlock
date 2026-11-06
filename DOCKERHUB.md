@@ -18,7 +18,7 @@
 * 📺 **解锁巡检 + 刷 IP**：定期检测 Netflix/Disney+/ChatGPT，未通过自动轮换出口 IP。
 * 🌍 **地区验证**：`WARP_REGION` 校验出口地区，`WARP_ENDPOINT` 高级自定义入口。
 * 🐕 **看门狗保活**：隧道失联自动重连（间隔可调，默认 60 秒）。
-* 🪶 **极致瘦身**：本地镜像仅 **~100MB**（Docker Hub 下载仅 **~58MB**，剔除 GUI 资源 + UPX LZMA + 静态 curl + scratch 压平）。
+* 🪶 **极致瘦身**：本地镜像仅 **~88MB**（Docker Hub 下载仅 **~48MB**，剔除 GUI 资源 + UPX LZMA + 静态 curl + scratch 压平）。
 * 🐳 **每日重建**：CI 自动构建 AMD64/ARM64 双架构镜像。
 
 ---
@@ -41,8 +41,8 @@
 
 | 配置 | 体积 |
 | :--- | :--- |
-| 默认（UPX 压缩 warp-svc，推荐） | ~100MB（下载仅 ~58MB） |
-| `UPX_WARP_SVC=0`（不压缩回退版） | ~145MB |
+| 默认（UPX 压缩 warp-svc，推荐） | ~88MB（下载仅 ~48MB） |
+| `UPX_WARP_SVC=0`（不压缩回退版） | ~135MB |
 
 > 若 UPX 压缩的 warp-svc 守护进程异常，用 `UPX_WARP_SVC=0` 重建即可回退。
 > 容器完整保留 bash 与常用工具，支持直接 `docker compose exec cloudflare-warp-unlock bash` 调试。

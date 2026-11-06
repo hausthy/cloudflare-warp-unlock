@@ -9,7 +9,7 @@ on:
         required: false
         default: ''
       upx_warp_svc:
-        description: 'UPX 压缩 warp-svc (1=开启 ~100MB，0=关闭 ~145MB)'
+        description: 'UPX 压缩 warp-svc (1=开启 ~88MB，0=关闭 ~135MB)'
         required: false
         default: '1'
 
@@ -47,7 +47,7 @@ jobs:
 
       # 5. 构建并推送到 DockerHub
       #    v2.0 为 Debian + 官方客户端 MASQUE 架构，Tag 前缀 masque-；
-      #    UPX 默认压缩 warp-svc（~100MB），异常时可手动触发选 0 回退
+      #    UPX 默认压缩 warp-svc（~88MB），异常时可手动触发选 0 回退
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v6
         with:

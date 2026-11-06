@@ -190,7 +190,7 @@ docker images | grep cloudflare-warp-unlock
 
 ### 镜像体积与构建参数
 
-最终镜像 **~100MB**（Docker Hub 下载仅 **~58MB**，默认开启 UPX，gost v3.3.3）/ **~145MB**（`UPX_WARP_SVC=0` 回退不压缩），相比初版 330MB 与早期 150MB 大幅瘦身。
+最终镜像 **~88MB**（Docker Hub 下载仅 **~48MB**，默认开启 UPX，gost v3.3.3）/ **~135MB**（`UPX_WARP_SVC=0` 回退不压缩），相比初版 330MB 与早期 150MB 大幅瘦身。
 瘦身手段：
 1. **剔除官方 deb 的 GUI 垃圾**：官方 deb 包含桌面托盘（`warp-taskbar`）与 Flutter Linux GTK 运行时资源（`/usr/lib/warp`，~42MB），提取时彻底剔除，仅保留后台服务核心；
 2. **极速构建闭包提取**：构建期仅提取 `warp-svc` 动态依赖，跳过官方 deb 对 WebKitGTK / GTK3 等 ~400MB 桌面库的下载与解压；
@@ -221,7 +221,7 @@ docker build --build-arg UPX_WARP_SVC=0 -t cloudflare-warp-unlock:test .
 docker compose exec cloudflare-warp-unlock bash
 ```
 
-> 说明：官方客户端 MASQUE 架构已剥离无用的 `/usr/lib/warp` 桌面组件（省 42MB），并深度剔除基础镜像冗余与启用 UPX LZMA，当前 ~100MB（下载仅 58MB）的体积基本包含 Debian 最小运行时闭包与官方 Rust 守护进程，实现了体积与官方稳定性的最佳平衡。
+> 说明：官方客户端 MASQUE 架构已剥离无用的 `/usr/lib/warp` 桌面组件（省 42MB），并深度剔除基础镜像冗余动态库/生僻工具与启用 UPX LZMA，当前 ~88MB（下载仅 48MB）的体积基本包含 Debian 最小运行时闭包与官方 Rust 守护进程，实现了体积与官方稳定性的最佳平衡。
 
 ---
 
