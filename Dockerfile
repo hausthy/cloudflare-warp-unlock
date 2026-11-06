@@ -44,6 +44,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN set -eux; \
     apt-get update; \
     # 仅安装 warp-svc 真正的动态链接依赖，绝不装 WebKitGTK / GTK3 等桌面全家桶
+    # 实测（deb 2026.8.2115.0）warp-svc 的 DT_NEEDED 全集仅：
+    #   libtss2-esys.so.0 / libtss2-tctildr.so.0 / libtss2-mu.so.0 /
+    #   libdbus-1.so.3 / libnss3.so / libsmime3.so / libgcc_s / libm / libc
+    # 下列包即可全部覆盖（libtss2-mu0、libsmime3 由 Depends 自动带入）；
+    # warp-cli 只依赖 libc/libm/libgcc_s。无 libpcap / nftables / setcap 动态依赖
+    # （deb 声明的 iproute2 / nftables / gnupg2 / libcap2-bin / libwebkit2gtk
+    #   全是桌面端或 postinst 用，warp-svc 运行时不加载，故一律不装）
     apt-get install -y --no-install-recommends \
         ca-certificates curl binutils xz-utils \
         libdbus-1-3 libtss2-esys-3.0.2-0 libtss2-tctildr0 libnss3; \
@@ -65,6 +72,14 @@ RUN set -eux; \
     mkdir -p /out; \
     for bin in /usr/bin/warp-svc /usr/bin/warp-cli; do \
       cp --parents "$bin" /out/; \
+      # 断言：新流程不再 apt install 整个包，缺库时 ldd 只输出 "not found"，
+      # 会被下面的 awk 静默跳过 —— 构建成功但运行时报
+      # "error while loading shared libraries"。必须在构建期硬失败。
+      if ldd "$bin" 2>/dev/null | grep -q 'not found'; then \
+        echo "错误：${bin} 存在未满足的动态依赖（官方新版 deb 可能新增了库，请补齐上方 apt 清单）："; \
+        ldd "$bin" | grep 'not found'; \
+        exit 1; \
+      fi; \
       ldd "$bin" 2>/dev/null \
         | awk '{if ($3 ~ /^\//) print $3; else if ($1 ~ /^\//) print $1}' \
         | sort -u > /tmp/libs.txt; \
@@ -74,9 +89,9 @@ RUN set -eux; \
     for lib in /usr/lib/*/libtss2*; do \
       [ -e "$lib" ] && cp --parents "$lib" /out/ || true; \
     done; \
-    # 客户端运行时配置目录
-    [ -d /etc/cloudflare-warp ] && cp -a --parents /etc/cloudflare-warp /out/ || true; \
-    # 注意：绝对不再拷贝 /usr/lib/warp（那是 Flutter 桌面托盘 GUI 资源，省 ~42MB！）\
+    # 不再拷贝 /usr/lib/warp（582 个文件的 Flutter 桌面托盘资源，48.9MB）：
+    # 实测 warp-svc / warp-cli 二进制内 "/usr/lib/warp" 出现 0 次，纯 GUI 资产。
+    # 官方 deb 也不含 /etc/cloudflare-warp，二进制同样不引用，无需拷贝。
     # ---------- merged-usr 归一化 ----------
     for d in bin sbin lib lib64; do \
       if [ -d "/out/$d" ]; then \
