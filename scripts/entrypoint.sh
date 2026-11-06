@@ -203,15 +203,38 @@ fi
 #     info 隐 DEBUG，warn/error 再隐 INFO（debug/trace 不过滤）
 #   - WARP_LOG_FILE 非空时经 tee 同步落盘（stdout 仍进 docker logs）
 # ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# warp-svc 时间戳本地化：把官方 UTC 格式 (2026-11-06T05:15:04.038Z)
+# 转换为系统本地时区 (2026-11-06 13:15:04.038)，与 entrypoint log 保持统一
+# ------------------------------------------------------------------------------
+to_local_time() {
+  local line d t ms rest local_dt
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})T([0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]+))?Z(.*)$ ]]; then
+      d="${BASH_REMATCH[1]}"
+      t="${BASH_REMATCH[2]}"
+      ms="${BASH_REMATCH[3]:-}"
+      rest="${BASH_REMATCH[4]}"
+      local_dt="$(date -d "${d}T${t}Z" '+%F %T' 2>/dev/null)" || local_dt="${d} ${t}"
+      if [[ -n "$ms" ]]; then
+        line="${local_dt}.${ms}${rest}"
+      else
+        line="${local_dt}${rest}"
+      fi
+    fi
+    printf '%s\n' "$line"
+  done
+}
+
 filter_by_level() {
   # 内置噪音关键字（容器环境已验证无害的正则，| 分隔）
-  local builtin_noise=' (DEBUG|INFO) |quiche: .* idle timeout expired|Failed to load SMBiosData|Discarding structured log emitted without ZT registration|Reinstalling missing WARP fwmark|IPC writer failed|Failed to bind to preferred UDP socket|actor_emergency_disconnect|NewNeighbour|^(h|ip|ts|uag|colo|sliver|http|loc|tls|sni|warp|gateway|rbi|kex|visit_scheme|fl)=|^[[:space:]]*(changes|new_info|power_state|fallback_disconnect_reason|failed_disconnect_reason)[[:space:]]*='
+  local builtin_noise=' (DEBUG|INFO) |quiche: .* idle timeout expired|Failed to load SMBiosData|Discarding structured log emitted without ZT registration|Reinstalling missing WARP fwmark|IPC writer failed|Failed to bind to preferred UDP socket|actor_emergency_disconnect|NewNeighbour|actor_statistics::handler|A non-teams registration|^(h|ip|ts|uag|colo|sliver|http|loc|tls|sni|warp|gateway|rbi|kex|visit_scheme|fl)=|^[[:space:]]*(changes|new_info|power_state|fallback_disconnect_reason|failed_disconnect_reason)[[:space:]]*='
   # 用户自定义追加关键字（LOG_NOISE_KEYWORDS，ERE 正则，| 分隔），叠加在内置之上
   local extra="${LOG_NOISE_KEYWORDS:-}"
   # warp-svc 输出带 ANSI 颜色码（如 "<ESC>[34mDEBUG<ESC>[0m"），裸 ' DEBUG ' 匹配不上，
   # 必须先剥离转义序列再按级别过滤；顺带让落盘日志为纯文本、便于 grep
   # （NO_COLOR 尝试从源头关闭颜色，warp-svc 不识别时由 sed 兜底）
-  sed -E $'s/\x1b\\[[0-9;]*[mK]//g' | {
+  sed -E $'s/\x1b\[[0-9;]*[mK]//g' | {
     case "${WARP_LOG_LEVEL:-error}" in
       debug|trace) cat ;;
       warn|error)
@@ -228,7 +251,7 @@ filter_by_level() {
           grep --line-buffered -v ' DEBUG '
         fi ;;
     esac
-  }
+  } | to_local_time
 }
 # ------------------------------------------------------------------------------
 # 日志写入器：按日期滚动 + 同日按大小分卷 + 保留最近 N 天
