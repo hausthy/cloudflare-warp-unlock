@@ -363,6 +363,29 @@ PROXY_USER=u PROXY_PASS=p ./tools/warp-ping.sh -p 1.2.3.4:40000 netflix.com  # �
 
 **代理认证**：`-u user:pass` > `PROXY_USER`+`PROXY_PASS`（两者同时设置才生效，与容器内同名变量一致）；若 URL 里已写 `user:pass@`，不再额外传认证。注意认证只在代理要求时才需要——compose 默认只监听 `127.0.0.1`，本机测试通常不用。
 
+#### 装成全局命令（任意目录直接 `warp-ping`）
+
+```bash
+cd cloudflare-warp-unlock
+chmod +x tools/warp-ping.sh
+sudo ln -sf "$(pwd)/tools/warp-ping.sh" /usr/local/bin/warp-ping   # 必须绝对路径
+
+warp-ping -p 127.0.0.1:40000 netflix.com
+```
+
+无 sudo 时装到用户目录：
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf "$(pwd)/tools/warp-ping.sh" ~/.local/bin/warp-ping
+grep -q '.local/bin' ~/.bashrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+符号链接的好处是仓库 `git pull` 后命令自动更新；代价是**移动或删除仓库目录后链接失效**（重新执行一次 ln 即可）。
+
+若不走 git（scp、压缩包、Windows 编辑器另存）导致脚本报 `bad interpreter: /usr/bin/env bash^M`，是 CRLF 换行导致，转一下即可：`sed -i 's/\r$//' tools/warp-ping.sh`（仓库内已由 `.gitattributes` 强制 LF，正常 `git clone` 不会遇到）。
+
 协议族判定原理：必须使用 `socks5://`（不带 `h`），由 curl 本地解析域名后向代理发起精确的 A/AAAA 请求，再从 SOCKS5 握手行（`SOCKS5 connect to IPv4/IPv6 x.x.x.x`）判断实际走的协议族；若用 `socks5h://`，解析在代理侧完成，无法得知协议族。可用于排查出口协议族漂移问题（见「出口协议族说明」节）。
 
 ---
